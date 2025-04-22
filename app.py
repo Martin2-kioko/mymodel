@@ -8,7 +8,7 @@ import joblib
 from tensorflow.keras.models import load_model
 
 # Load data
-data = pd.read_csv("MVS.csv", parse_dates=["DatetimeIndex"], index_col="DatetimeIndex")
+data = pd.read_csv("MVS.csv", parse_dates=["Date"], index_col="DatetimeIndex")
 
 # Load models and scalers
 model_M = load_model("mastercard_lstm_model.h5")
