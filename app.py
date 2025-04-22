@@ -1,8 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.ticker import FuncFormatter
 from datetime import datetime
 import plotly.graph_objects as go
 import joblib
@@ -51,51 +49,69 @@ page = st.sidebar.radio("Go to", ["🏠 Home", "📈 Predict", "ℹ️ Company I
 def plot_historical_prices():
     st.subheader("Stock Prices: 2008–2024")
     
-    # Plot the closing prices for Mastercard and Visa
-    plt.figure(figsize=(14, 7))
-    plt.plot(data.index, data['Close_M'], label='MasterCard Close', color='green')
-    plt.plot(data.index, data['Close_V'], label='Visa Close', color='blue')
-    plt.title('Stock Prices of MasterCard and Visa')
-    plt.xlabel('Date')
-    plt.ylabel('Stock Price (USD)')
-    plt.legend()
-    plt.grid(True)
-    st.pyplot(plt)
+    # Plot the closing prices for Mastercard and Visa with interactivity using Plotly
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=data.index, 
+        y=data['Close_M'], 
+        mode='lines', 
+        name='MasterCard Close', 
+        line=dict(color='green')
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=data.index, 
+        y=data['Close_V'], 
+        mode='lines', 
+        name='Visa Close', 
+        line=dict(color='blue')
+    ))
+
+    fig.update_layout(
+        title='Stock Prices of MasterCard and Visa',
+        xaxis_title='Date',
+        yaxis_title='Stock Price (USD)',
+        hovermode='x unified'
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
 
 def plot_volumes():
     st.subheader("Yearly Trading Volume: 2008–2024")
-    
-    # Function to format Y-axis labels as USD with billions
-    def billions(x, pos):
-        return f'${x * 1e-9:.1f}B'
     
     # Grouping yearly volume data
     yearly_volume = data.groupby(data.index.year)[['Volume_M', 'Volume_V']].sum()
     yearly_volume.index = yearly_volume.index.astype(str)
     
-    plt.figure(figsize=(14, 7))
-    bar_width = 0.4
-    years = yearly_volume.index
-    x = range(len(years))
-    
-    # Plotting bar chart for yearly volume of Mastercard and Visa
-    plt.bar([i - bar_width/2 for i in x], yearly_volume['Volume_M'],
-            width=bar_width, label='Mastercard', color='blue')
-    plt.bar([i + bar_width/2 for i in x], yearly_volume['Volume_V'],
-            width=bar_width, label='Visa', color='orange')
+    # Plotting bar chart for yearly volume of Mastercard and Visa with Plotly
+    fig = go.Figure()
 
-    plt.xlabel('Year')
-    plt.ylabel('Trading Volume (USD)')
-    plt.title('Yearly Trading Volume for Mastercard and Visa (2008–2024)')
-    plt.xticks(ticks=x, labels=years, rotation=45)
-    plt.legend()
-    
-    # Format Y-axis as billions of USD
-    plt.gca().yaxis.set_major_formatter(FuncFormatter(billions))
-    
-    plt.tight_layout()
-    plt.grid(axis='y', linestyle='--', alpha=0.7)
-    st.pyplot(plt)
+    fig.add_trace(go.Bar(
+        x=yearly_volume.index, 
+        y=yearly_volume['Volume_M'],
+        name='Mastercard', 
+        marker=dict(color='blue'),
+        opacity=0.7
+    ))
+
+    fig.add_trace(go.Bar(
+        x=yearly_volume.index, 
+        y=yearly_volume['Volume_V'],
+        name='Visa', 
+        marker=dict(color='orange'),
+        opacity=0.7
+    ))
+
+    fig.update_layout(
+        title='Yearly Trading Volume for Mastercard and Visa (2008–2024)',
+        xaxis_title='Year',
+        yaxis_title='Trading Volume (USD)',
+        barmode='group',
+        hovermode='x unified'
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
 
 # --- Page logic ---
 if page == "🏠 Home":
