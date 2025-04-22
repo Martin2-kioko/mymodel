@@ -7,8 +7,33 @@ import plotly.graph_objects as go
 import joblib
 from tensorflow.keras.models import load_model
 
+# Function to load data dynamically by detecting date column
+def load_data():
+    # Read CSV file
+    data = pd.read_csv("MVS.csv")
+    
+    # Automatically detect the date column
+    date_column = None
+    for col in data.columns:
+        try:
+            # Try to convert to datetime
+            pd.to_datetime(data[col])
+            date_column = col
+            break
+        except:
+            continue
+    
+    if date_column is None:
+        raise ValueError("No datetime column found in the CSV file.")
+
+    # Set the date column as index and parse it as dates
+    data[date_column] = pd.to_datetime(data[date_column])
+    data.set_index(date_column, inplace=True)
+    
+    return data
+
 # Load data
-data = pd.read_csv("MVS.csv", parse_dates=["Date"], index_col="DatetimeIndex")
+data = load_data()
 
 # Load models and scalers
 model_M = load_model("mastercard_lstm_model.h5")
