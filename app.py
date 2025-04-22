@@ -140,30 +140,30 @@ elif page == "📈 Predict":
     if st.button("Predict Stock Prices"):
         pred_M, pred_V = make_future_prediction(user_date)
         if pred_M is None or pred_V is None:
-            return  # Skip if prediction fails
-        
-        st.success(f"📅 Predicted Price on {user_date.strftime('%Y-%m-%d')}")
-        st.write(f"💳 **Visa**: ${pred_V:.2f}")
-        st.write(f"💰 **Mastercard**: ${pred_M:.2f}")
+            st.error("Prediction failed. Please try again with a valid date.")
+        else:
+            st.success(f"📅 Predicted Price on {user_date.strftime('%Y-%m-%d')}")
+            st.write(f"💳 **Visa**: ${pred_V:.2f}")
+            st.write(f"💰 **Mastercard**: ${pred_M:.2f}")
 
-        # Buy/Sell Advice
-        st.subheader("💡 Investment Advice")
-        advice_M = "Buy" if pred_M < data['Close_M'].iloc[-1] else "Sell"
-        advice_V = "Buy" if pred_V < data['Close_V'].iloc[-1] else "Sell"
-        st.write(f"➡️ **Mastercard Advice**: {advice_M}")
-        st.write(f"➡️ **Visa Advice**: {advice_V}")
+            # Buy/Sell Advice
+            st.subheader("💡 Investment Advice")
+            advice_M = "Buy" if pred_M < data['Close_M'].iloc[-1] else "Sell"
+            advice_V = "Buy" if pred_V < data['Close_V'].iloc[-1] else "Sell"
+            st.write(f"➡️ **Mastercard Advice**: {advice_M}")
+            st.write(f"➡️ **Visa Advice**: {advice_V}")
 
-        # Plot with future point
-        future_date = pd.to_datetime(user_date)
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=data.index, y=data['Close_M'], name='Mastercard Historical', line=dict(color='green')))
-        fig.add_trace(go.Scatter(x=[future_date], y=[pred_M], name='Mastercard Prediction', mode='markers+lines', line=dict(color='darkgreen', dash='dot')))
+            # Plot with future point
+            future_date = pd.to_datetime(user_date)
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=data.index, y=data['Close_M'], name='Mastercard Historical', line=dict(color='green')))
+            fig.add_trace(go.Scatter(x=[future_date], y=[pred_M], name='Mastercard Prediction', mode='markers+lines', line=dict(color='darkgreen', dash='dot')))
 
-        fig.add_trace(go.Scatter(x=data.index, y=data['Close_V'], name='Visa Historical', line=dict(color='blue')))
-        fig.add_trace(go.Scatter(x=[future_date], y=[pred_V], name='Visa Prediction', mode='markers+lines', line=dict(color='navy', dash='dot')))
+            fig.add_trace(go.Scatter(x=data.index, y=data['Close_V'], name='Visa Historical', line=dict(color='blue')))
+            fig.add_trace(go.Scatter(x=[future_date], y=[pred_V], name='Visa Prediction', mode='markers+lines', line=dict(color='navy', dash='dot')))
 
-        fig.update_layout(title="Stock Prices with Prediction", xaxis_title="Date", yaxis_title="Price (USD)")
-        st.plotly_chart(fig, use_container_width=True)
+            fig.update_layout(title="Stock Prices with Prediction", xaxis_title="Date", yaxis_title="Price (USD)")
+            st.plotly_chart(fig, use_container_width=True)
 
 elif page == "ℹ️ Company Info":
     st.title("ℹ️ About Visa and Mastercard")
