@@ -1,13 +1,14 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
+from datetime import datetime
 import plotly.graph_objects as go
 import joblib
 from tensorflow.keras.models import load_model
 
-# Function to load data dynamically by detecting date column
+# Function to load data dynamically by detecting the date column
 def load_data():
     # Read CSV file
     data = pd.read_csv("MVS.csv")
@@ -41,12 +42,6 @@ model_V = load_model("visa_lstm_model.h5")
 scaler_M = joblib.load("scaler_mastercard.save")
 scaler_V = joblib.load("scaler_visa.save")
 
-# Feature engineering for Visa
-data['MA10_V'] = data['Close_V'].rolling(window=10).mean()
-data['MA20_V'] = data['Close_V'].rolling(window=20).mean()
-data['Volatility_V'] = data['Close_V'].rolling(window=10).std()
-data.dropna(inplace=True)
-
 # --- UI setup ---
 st.set_page_config(page_title="Visa & Mastercard Stocks", layout="wide")
 st.sidebar.title("Navigation")
@@ -55,68 +50,52 @@ page = st.sidebar.radio("Go to", ["🏠 Home", "📈 Predict", "ℹ️ Company I
 # --- Utility functions ---
 def plot_historical_prices():
     st.subheader("Stock Prices: 2008–2024")
-    fig = go.Figure()
-    fig.add_trace(go.Bar(x=data.index, y=data['Close_M'], name='Mastercard'))
-    fig.add_trace(go.Bar(x=data.index, y=data['Close_V'], name='Visa'))
-    fig.update_layout(title="Historical Close Prices", xaxis_title="Date", yaxis_title="Price (USD)")
-    st.plotly_chart(fig, use_container_width=True)
+    
+    # Plot the closing prices for Mastercard and Visa
+    plt.figure(figsize=(14, 7))
+    plt.plot(data.index, data['Close_M'], label='MasterCard Close', color='green')
+    plt.plot(data.index, data['Close_V'], label='Visa Close', color='blue')
+    plt.title('Stock Prices of MasterCard and Visa')
+    plt.xlabel('Date')
+    plt.ylabel('Stock Price (USD)')
+    plt.legend()
+    plt.grid(True)
+    st.pyplot(plt)
 
 def plot_volumes():
-    st.subheader("Volume Traded: 2008–2024")
-    fig = go.Figure()
-
-    # Create two subplots: one for Mastercard and one for Visa
-    fig.add_trace(go.Bar(x=data.index, y=data['Volume_M'], name='Mastercard', marker=dict(color='blue')))
-    fig.add_trace(go.Bar(x=data.index, y=data['Volume_V'], name='Visa', marker=dict(color='orange')))
+    st.subheader("Yearly Trading Volume: 2008–2024")
     
-    fig.update_layout(
-        barmode='group', # Bar charts side-by-side
-        xaxis_title="Date",
-        yaxis_title="Volume"
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-def create_sequences_lstm(input_data, seq_len=60):
-    sequences = []
-    last_data = input_data[-seq_len:]
-    sequences.append(last_data)
-    return np.array(sequences)
-
-def make_future_prediction(date):
-    # Ensure the date is a datetime object
-    if isinstance(date, str):
-        date = pd.to_datetime(date)
+    # Function to format Y-axis labels as USD with billions
+    def billions(x, pos):
+        return f'${x * 1e-9:.1f}B'
     
-    # Ensure the data's index is datetime type as well
-    if not isinstance(data.index[-1], pd.Timestamp):
-        data.index = pd.to_datetime(data.index)
+    # Grouping yearly volume data
+    yearly_volume = data.groupby(data.index.year)[['Volume_M', 'Volume_V']].sum()
+    yearly_volume.index = yearly_volume.index.astype(str)
+    
+    plt.figure(figsize=(14, 7))
+    bar_width = 0.4
+    years = yearly_volume.index
+    x = range(len(years))
+    
+    # Plotting bar chart for yearly volume of Mastercard and Visa
+    plt.bar([i - bar_width/2 for i in x], yearly_volume['Volume_M'],
+            width=bar_width, label='Mastercard', color='blue')
+    plt.bar([i + bar_width/2 for i in x], yearly_volume['Volume_V'],
+            width=bar_width, label='Visa', color='orange')
 
-    future_days = (date - data.index[-1]).days
-    if future_days <= 0:
-        st.error("Please select a date beyond the last available data point (after June 2024).")
-        return None, None
-
-    # Mastercard
-    scaled_M = scaler_M.transform(data[['Close_M']])
-    x_input_M = create_sequences_lstm(scaled_M)
-
-    for _ in range(future_days):
-        next_pred = model_M.predict(x_input_M)[0][0]
-        x_input_M = np.append(x_input_M[:, 1:, :], [[[next_pred]]], axis=1)
-
-    pred_price_M = scaler_M.inverse_transform([[next_pred]])[0][0]
-
-    # Visa
-    scaled_V = scaler_V.transform(data[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']])
-    x_input_V = create_sequences_lstm(scaled_V)
-
-    for _ in range(future_days):
-        next_pred_v = model_V.predict(x_input_V)[0][0]
-        x_input_V = np.append(x_input_V[:, 1:, :], [[[next_pred_v, 0, 0, 0]]], axis=1)
-
-    pred_price_V = scaler_V.inverse_transform([[next_pred_v, 0, 0, 0]])[0][0]
-
-    return pred_price_M, pred_price_V
+    plt.xlabel('Year')
+    plt.ylabel('Trading Volume (USD)')
+    plt.title('Yearly Trading Volume for Mastercard and Visa (2008–2024)')
+    plt.xticks(ticks=x, labels=years, rotation=45)
+    plt.legend()
+    
+    # Format Y-axis as billions of USD
+    plt.gca().yaxis.set_major_formatter(FuncFormatter(billions))
+    
+    plt.tight_layout()
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    st.pyplot(plt)
 
 # --- Page logic ---
 if page == "🏠 Home":
