@@ -56,17 +56,24 @@ page = st.sidebar.radio("Go to", ["🏠 Home", "📈 Predict", "ℹ️ Company I
 def plot_historical_prices():
     st.subheader("Stock Prices: 2008–2024")
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=data.index, y=data['Close_M'], mode='lines', name='Mastercard'))
-    fig.add_trace(go.Scatter(x=data.index, y=data['Close_V'], mode='lines', name='Visa'))
+    fig.add_trace(go.Bar(x=data.index, y=data['Close_M'], name='Mastercard'))
+    fig.add_trace(go.Bar(x=data.index, y=data['Close_V'], name='Visa'))
     fig.update_layout(title="Historical Close Prices", xaxis_title="Date", yaxis_title="Price (USD)")
     st.plotly_chart(fig, use_container_width=True)
 
 def plot_volumes():
     st.subheader("Volume Traded: 2008–2024")
     fig = go.Figure()
-    fig.add_trace(go.Bar(x=data.index, y=data['Volume_M'], name='Mastercard'))
-    fig.add_trace(go.Bar(x=data.index, y=data['Volume_V'], name='Visa'))
-    fig.update_layout(barmode='overlay', xaxis_title="Date", yaxis_title="Volume")
+
+    # Create two subplots: one for Mastercard and one for Visa
+    fig.add_trace(go.Bar(x=data.index, y=data['Volume_M'], name='Mastercard', marker=dict(color='blue')))
+    fig.add_trace(go.Bar(x=data.index, y=data['Volume_V'], name='Visa', marker=dict(color='orange')))
+    
+    fig.update_layout(
+        barmode='group', # Bar charts side-by-side
+        xaxis_title="Date",
+        yaxis_title="Volume"
+    )
     st.plotly_chart(fig, use_container_width=True)
 
 def create_sequences_lstm(input_data, seq_len=60):
@@ -76,10 +83,18 @@ def create_sequences_lstm(input_data, seq_len=60):
     return np.array(sequences)
 
 def make_future_prediction(date):
+    # Ensure the date is a datetime object
+    if isinstance(date, str):
+        date = pd.to_datetime(date)
+    
+    # Ensure the data's index is datetime type as well
+    if not isinstance(data.index[-1], pd.Timestamp):
+        data.index = pd.to_datetime(data.index)
+
     future_days = (date - data.index[-1]).days
     if future_days <= 0:
         st.error("Please select a date beyond the last available data point (after June 2024).")
-        return
+        return None, None
 
     # Mastercard
     scaled_M = scaler_M.transform(data[['Close_M']])
@@ -106,15 +121,27 @@ def make_future_prediction(date):
 # --- Page logic ---
 if page == "🏠 Home":
     st.title("🏦 Visa & Mastercard - Stock Market Overview")
-    plot_historical_prices()
-    plot_volumes()
+    
+    # Display stock prices and volumes in a two-column layout
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        plot_historical_prices()  # Stock Prices chart
+        
+    with col2:
+        plot_volumes()  # Volume Traded chart
+        
     st.success("Use the sidebar to navigate to the prediction page or company info.")
 
 elif page == "📈 Predict":
     st.title("🔮 Predict Future Stock Prices")
     user_date = st.date_input("Select a future date (after June 2024)", min_value=datetime(2024, 6, 29), value=datetime(2025, 6, 1))
+    
     if st.button("Predict Stock Prices"):
         pred_M, pred_V = make_future_prediction(user_date)
+        if pred_M is None or pred_V is None:
+            return  # Skip if prediction fails
+        
         st.success(f"📅 Predicted Price on {user_date.strftime('%Y-%m-%d')}")
         st.write(f"💳 **Visa**: ${pred_V:.2f}")
         st.write(f"💰 **Mastercard**: ${pred_M:.2f}")
