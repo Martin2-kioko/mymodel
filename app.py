@@ -40,11 +40,13 @@ scaler_V = joblib.load("scaler_visa.save")
 
 # --- Prediction ---
 def make_future_prediction(user_date):
+    # Ensure that the future date is after the last historical date
     future_days = (user_date - data.index[-1].date()).days
     if future_days <= 0:
         st.error("Select a date in the future after the latest available date.")
         return None, None
 
+    # Use the last 60 days of data to make predictions
     # Mastercard: last 60 days, reshape to (1, 60, 1)
     past_M = data['Close_M'].tail(60).values.reshape(-1, 1)
     scaled_M = scaler_M.transform(past_M).reshape(1, 60, 1)
@@ -53,9 +55,11 @@ def make_future_prediction(user_date):
     past_V = data[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].tail(60).values
     scaled_V = scaler_V.transform(past_V).reshape(1, 60, 4)
 
+    # Predict the next step for both Visa and Mastercard
     pred_M_scaled = model_M.predict(scaled_M)
     pred_V_scaled = model_V.predict(scaled_V)
 
+    # Inverse scale the predictions
     pred_M = scaler_M.inverse_transform(pred_M_scaled)[0][0]
     pred_V = scaler_V.inverse_transform(
         np.hstack((pred_V_scaled, np.zeros((1, 3))))
