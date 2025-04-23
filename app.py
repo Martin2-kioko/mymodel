@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime, date
+from datetime import datetime, timedelta
 import plotly.graph_objects as go
 import joblib
 from tensorflow.keras.models import load_model
@@ -12,7 +12,6 @@ st.set_page_config(page_title="Visa & Mastercard Stocks", layout="wide")
 # --- Utility functions ---
 def load_data():
     data = pd.read_csv("MVS.csv")
-    
     date_column = None
     for col in data.columns:
         try:
@@ -21,7 +20,6 @@ def load_data():
             break
         except:
             continue
-
     if date_column is None:
         raise ValueError("No datetime column found in the CSV file.")
 
@@ -31,44 +29,39 @@ def load_data():
     data['MA10_V'] = data['Close_V'].rolling(window=10).mean()
     data['MA20_V'] = data['Close_V'].rolling(window=20).mean()
     data['Volatility_V'] = data['Close_V'].rolling(window=10).std()
-
     data.dropna(inplace=True)
-    
+
     return data
 
 # --- Prediction function ---
 def make_future_prediction(user_date):
-    today = data.index[-1].date()
-    if isinstance(user_date, datetime):
-        user_date = user_date.date()
-
+    today = data.index[-1]
     days_to_predict = (user_date - today).days
 
     if days_to_predict <= 0:
-        st.error("Please select a date after the last available date in the dataset.")
+        st.warning("Please select a future date after the latest date in the dataset.")
         return None, None
 
-    seq_len = 60
-
-    temp_data_M = data['Close_M'].values[-seq_len:].reshape(-1, 1)
-    temp_data_V = data[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].values[-seq_len:]
+    temp_data_M = data['Close_M'].values[-60:].reshape(-1, 1)
+    temp_data_V = data[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].values[-60:]
 
     for _ in range(days_to_predict):
-        scaled_M = scaler_M.transform(temp_data_M[-seq_len:].reshape(-1, 1))
-        scaled_M = scaled_M.reshape(1, seq_len, 1)
-        pred_scaled_M = model_M.predict(scaled_M)
-        pred_M = scaler_M.inverse_transform(pred_scaled_M)
-        temp_data_M = np.append(temp_data_M, pred_M).reshape(-1, 1)
+        scaled_M = scaler_M.transform(temp_data_M)
+        scaled_M = scaled_M.reshape(1, 60, 1)
+        pred_M_scaled = model_M.predict(scaled_M, verbose=0)
+        pred_M = scaler_M.inverse_transform(pred_M_scaled)
+        temp_data_M = np.append(temp_data_M, pred_M)[-60:]
+        temp_data_M = temp_data_M.reshape(-1, 1)
 
-        scaled_V = scaler_V.transform(temp_data_V[-seq_len:])
-        scaled_V = scaled_V.reshape(1, seq_len, 4)
-        pred_scaled_V = model_V.predict(scaled_V)
-        padded_input = np.hstack((pred_scaled_V, np.zeros((pred_scaled_V.shape[0], 3))))
-        pred_V = scaler_V.inverse_transform(padded_input)[:, 0]
-        new_row_V = np.array([pred_V[0]] * 4).reshape(1, 4)
-        temp_data_V = np.append(temp_data_V, new_row_V, axis=0)
+        scaled_V = scaler_V.transform(temp_data_V)
+        scaled_V = scaled_V.reshape(1, 60, 4)
+        pred_V_scaled = model_V.predict(scaled_V, verbose=0)
+        padded_pred = np.hstack((pred_V_scaled, np.zeros((1, 3))))
+        pred_V = scaler_V.inverse_transform(padded_pred)[:, 0]
+        new_row = np.array([[pred_V[0], pred_V[0], pred_V[0], pred_V[0]]])
+        temp_data_V = np.vstack((temp_data_V, new_row))[-60:]
 
-    return temp_data_M[-1][0], temp_data_V[-1][0]
+    return float(pred_M[0][0]), float(pred_V[0])
 
 # Load data
 data = load_data()
@@ -114,7 +107,8 @@ if page == "🏠 Home":
 
 elif page == "📈 Predict":
     st.title("🔮 Predict Future Stock Prices")
-    user_date = st.date_input("Select a future date (after June 2024)", min_value=date(2024, 6, 29), value=date(2025, 6, 1))
+    user_date = st.date_input("Select a future date (up to December 2025)", min_value=data.index[-1] + timedelta(days=1), max_value=datetime(2025, 12, 31), value=datetime(2025, 6, 1))
+
     if st.button("Predict Stock Prices"):
         pred_M, pred_V = make_future_prediction(user_date)
         if pred_M is None or pred_V is None:
