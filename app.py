@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 import plotly.graph_objects as go
 import joblib
 from tensorflow.keras.models import load_model
@@ -12,6 +12,7 @@ st.set_page_config(page_title="Visa & Mastercard Stocks", layout="wide")
 # --- Utility functions ---
 def load_data():
     data = pd.read_csv("MVS.csv")
+
     date_column = None
     for col in data.columns:
         try:
@@ -20,6 +21,7 @@ def load_data():
             break
         except:
             continue
+
     if date_column is None:
         raise ValueError("No datetime column found in the CSV file.")
 
@@ -30,47 +32,48 @@ def load_data():
     data['MA20_V'] = data['Close_V'].rolling(window=20).mean()
     data['Volatility_V'] = data['Close_V'].rolling(window=10).std()
     data.dropna(inplace=True)
+
     return data
 
-# --- Recursive Prediction Function ---
+# --- Prediction function ---
 def make_future_prediction(user_date):
-    last_date = data.index[-1]
-    days_ahead = (user_date - last_date.date()).days
-    if days_ahead <= 0:
-        st.error("Please select a date after the last available data.")
+    seq_len = 60
+    today = data.index[-1]
+    days_to_predict = (user_date - today).days
+
+    if days_to_predict <= 0:
+        st.warning("Selected date must be in the future.")
         return None, None
 
-    seq_len = 60
-    temp_data_M = data['Close_M'].values[-seq_len:].reshape(-1, 1)
-    temp_data_V = data[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].values[-seq_len:]
+    # Mastercard prediction
+    temp_data_M = data['Close_M'].values[-seq_len:].tolist()
+    for _ in range(days_to_predict):
+        latest_input_M = np.array(temp_data_M[-seq_len:]).reshape(-1, 1)
+        scaled_input_M = scaler_M.transform(latest_input_M)
+        scaled_input_M = scaled_input_M.reshape(1, seq_len, 1)
+        next_pred_scaled = model_M.predict(scaled_input_M)[0][0]
+        next_pred = scaler_M.inverse_transform([[next_pred_scaled]])[0][0]
+        temp_data_M.append(next_pred)
+    pred_M = temp_data_M[-1]
 
-    for _ in range(days_ahead):
-        scaled_M = scaler_M.transform(temp_data_M[-seq_len:].reshape(1, seq_len, 1))
-        scaled_V = scaler_V.transform(temp_data_V[-seq_len:])
-        scaled_V = scaled_V.reshape(1, seq_len, 4)
-
-        pred_M_scaled = model_M.predict(scaled_M)
-        pred_V_scaled = model_V.predict(scaled_V)
-
-        pred_M = scaler_M.inverse_transform(pred_M_scaled)[0][0]
-        pred_V = scaler_V.inverse_transform(np.hstack((pred_V_scaled, np.zeros((1, 3)))))[0][0]
-
-        temp_data_M = np.append(temp_data_M, [[pred_M]], axis=0)
-
-        # Generate next row for Visa using predicted value and rolling updates
-        last_v = temp_data_V[-10:]
-        ma10 = np.mean(last_v[:, 0][-10:])
-        ma20 = np.mean(temp_data_V[:, 0][-20:]) if len(temp_data_V) >= 20 else np.mean(temp_data_V[:, 0])
-        vol = np.std(last_v[:, 0])
-        new_row_v = np.array([[pred_V, ma10, ma20, vol]])
-        temp_data_V = np.append(temp_data_V, new_row_v, axis=0)
+    # Visa prediction
+    temp_data_V = data[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].values[-seq_len:].tolist()
+    for _ in range(days_to_predict):
+        latest_input_V = np.array(temp_data_V[-seq_len:])
+        scaled_input_V = scaler_V.transform(latest_input_V)
+        scaled_input_V = scaled_input_V.reshape(1, seq_len, 4)
+        next_pred_scaled = model_V.predict(scaled_input_V)[0][0]
+        dummy_ma10 = dummy_ma20 = next_pred_scaled  # Approximation
+        dummy_vol = 0.01  # Constant dummy volatility
+        next_input = [next_pred_scaled, dummy_ma10, dummy_ma20, dummy_vol]
+        next_pred = scaler_V.inverse_transform([[next_pred_scaled, dummy_ma10, dummy_ma20, dummy_vol]])[0][0]
+        temp_data_V.append(next_input)
+    pred_V = temp_data_V[-1][0]
 
     return pred_M, pred_V
 
 # Load data
 data = load_data()
-
-# Load models and scalers
 model_M = load_model("mastercard_lstm_model.h5")
 model_V = load_model("visa_lstm_model.h5")
 scaler_M = joblib.load("scaler_mastercard.save")
@@ -80,6 +83,7 @@ scaler_V = joblib.load("scaler_visa.save")
 st.sidebar.title("Navigation")
 page = st.sidebar.radio("Go to", ["🏠 Home", "📈 Predict", "ℹ️ Company Info"])
 
+# --- Plotting functions ---
 def plot_historical_prices():
     st.subheader("Stock Prices: 2008–2024")
     fig = go.Figure()
@@ -119,7 +123,6 @@ elif page == "📈 Predict":
             st.success(f"📅 Predicted Price on {user_date.strftime('%Y-%m-%d')}")
             st.write(f"💳 **Visa**: ${pred_V:.2f}")
             st.write(f"💰 **Mastercard**: ${pred_M:.2f}")
-
             st.subheader("💡 Investment Advice")
             advice_M = "Buy" if pred_M > data['Close_M'].iloc[-1] else "Sell"
             advice_V = "Buy" if pred_V > data['Close_V'].iloc[-1] else "Sell"
