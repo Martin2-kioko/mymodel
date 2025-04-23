@@ -29,10 +29,21 @@ def load_data():
     data[date_column] = pd.to_datetime(data[date_column])
     data.set_index(date_column, inplace=True)
     
+    # Feature Engineering: Ensure the columns for moving averages and volatility are being calculated correctly
+    data['MA10_V'] = data['Close_V'].rolling(window=10).mean()
+    data['MA20_V'] = data['Close_V'].rolling(window=20).mean()
+    data['Volatility_V'] = data['Close_V'].rolling(window=10).std()
+
+    # Drop NaNs after rolling
+    data.dropna(inplace=True)
+    
     return data
 
 # Load data
 data = load_data()
+
+# Display column names to help debug
+st.write("Columns in the dataset:", data.columns)
 
 # Load models and scalers
 model_M = load_model("mastercard_lstm_model.h5")
@@ -113,39 +124,6 @@ def plot_volumes():
 
     st.plotly_chart(fig, use_container_width=True)
 
-# --- Prediction Logic ---
-def make_future_prediction(user_date):
-    # Ensure the date is in the right format
-    future_date = pd.to_datetime(user_date)
-    
-    # Prepare the input data for prediction (you may need to adjust this based on how your models expect input)
-    # Get the most recent data
-    latest_data_M = data[['Close_M']].tail(1)  # Only Close_M for Mastercard
-    latest_data_V = data[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].tail(1)  # Multiple features for Visa
-    
-    # Normalize the input data (use the scaler you loaded earlier)
-    try:
-        latest_data_M_scaled = scaler_M.transform(latest_data_M.values.reshape(1, -1))
-        latest_data_V_scaled = scaler_V.transform(latest_data_V.values.reshape(1, -1))
-    except ValueError as e:
-        st.error(f"Error with scaling input data: {e}")
-        return None, None
-    
-    # Reshape the data to the shape the model expects (3D input for LSTM)
-    latest_data_M_scaled = latest_data_M_scaled.reshape((1, 1, latest_data_M_scaled.shape[1]))
-    latest_data_V_scaled = latest_data_V_scaled.reshape((1, 1, latest_data_V_scaled.shape[1]))
-
-    # Make the predictions using the LSTM models
-    pred_M_scaled = model_M.predict(latest_data_M_scaled)
-    pred_V_scaled = model_V.predict(latest_data_V_scaled)
-    
-    # Inverse transform the predictions to get the actual values
-    pred_M = scaler_M.inverse_transform(pred_M_scaled)
-    pred_V = scaler_V.inverse_transform(pred_V_scaled)
-
-    # Return the predicted values
-    return pred_M[0][0], pred_V[0][0]
-
 # --- Page logic ---
 if page == "🏠 Home":
     st.title("🏦 Visa & Mastercard - Stock Market Overview")
@@ -214,3 +192,28 @@ elif page == "ℹ️ Company Info":
     - **Founded**: 1966
     - **Headquarters**: Purchase, New York
     """)
+
+# --- Prediction Function ---
+def make_future_prediction(user_date):
+    # Check for the columns in data to avoid KeyError
+    if 'Close_V' not in data.columns or 'MA10_V' not in data.columns or 'MA20_V' not in data.columns or 'Volatility_V' not in data.columns:
+        st.error("Required columns for prediction are missing.")
+        return None, None
+
+    # Get the most recent data point for both Visa and Mastercard
+    latest_data_M = data[['Close_M']].tail(1)  # Only the closing price for Mastercard
+    latest_data_V = data[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].tail(1)  # Multiple features for Visa
+
+    # Rescale the data
+    latest_data_M_scaled = scaler_M.transform(latest_data_M.values.reshape(1, -1))
+    latest_data_V_scaled = scaler_V.transform(latest_data_V.values.reshape(1, -1))
+
+    # Make predictions for the selected future date
+    pred_M_scaled = model_M.predict(latest_data_M_scaled)
+    pred_V_scaled = model_V.predict(latest_data_V_scaled)
+
+    # Inverse scaling
+    pred_M = scaler_M.inverse_transform(pred_M_scaled)
+    pred_V = scaler_V.inverse_transform(np.hstack((pred_V_scaled, np.zeros((pred_V_scaled.shape[0], 3)))) )[:, 0]
+
+    return pred_M[0][0], pred_V[0]
