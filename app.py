@@ -6,6 +6,9 @@ import plotly.graph_objects as go
 import joblib
 from tensorflow.keras.models import load_model
 
+# Set page config as the first command
+st.set_page_config(page_title="Visa & Mastercard Stocks", layout="wide")
+
 # Function to load data dynamically by detecting the date column
 def load_data():
     # Read CSV file
@@ -52,7 +55,6 @@ scaler_M = joblib.load("scaler_mastercard.save")
 scaler_V = joblib.load("scaler_visa.save")
 
 # --- UI setup ---
-st.set_page_config(page_title="Visa & Mastercard Stocks", layout="wide")
 st.sidebar.title("Navigation")
 page = st.sidebar.radio("Go to", ["🏠 Home", "📈 Predict", "ℹ️ Company Info"])
 
