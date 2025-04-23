@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, date
 import plotly.graph_objects as go
 import joblib
 from tensorflow.keras.models import load_model
@@ -12,7 +12,7 @@ st.set_page_config(page_title="Visa & Mastercard Stocks", layout="wide")
 # --- Utility functions ---
 def load_data():
     data = pd.read_csv("MVS.csv")
-
+    
     date_column = None
     for col in data.columns:
         try:
@@ -31,49 +31,49 @@ def load_data():
     data['MA10_V'] = data['Close_V'].rolling(window=10).mean()
     data['MA20_V'] = data['Close_V'].rolling(window=20).mean()
     data['Volatility_V'] = data['Close_V'].rolling(window=10).std()
-    data.dropna(inplace=True)
 
+    data.dropna(inplace=True)
+    
     return data
 
 # --- Prediction function ---
 def make_future_prediction(user_date):
-    seq_len = 60
-    today = data.index[-1]
+    today = data.index[-1].date()
+    if isinstance(user_date, datetime):
+        user_date = user_date.date()
+
     days_to_predict = (user_date - today).days
 
     if days_to_predict <= 0:
-        st.warning("Selected date must be in the future.")
+        st.error("Please select a date after the last available date in the dataset.")
         return None, None
 
-    # Mastercard prediction
-    temp_data_M = data['Close_M'].values[-seq_len:].tolist()
-    for _ in range(days_to_predict):
-        latest_input_M = np.array(temp_data_M[-seq_len:]).reshape(-1, 1)
-        scaled_input_M = scaler_M.transform(latest_input_M)
-        scaled_input_M = scaled_input_M.reshape(1, seq_len, 1)
-        next_pred_scaled = model_M.predict(scaled_input_M)[0][0]
-        next_pred = scaler_M.inverse_transform([[next_pred_scaled]])[0][0]
-        temp_data_M.append(next_pred)
-    pred_M = temp_data_M[-1]
+    seq_len = 60
 
-    # Visa prediction
-    temp_data_V = data[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].values[-seq_len:].tolist()
-    for _ in range(days_to_predict):
-        latest_input_V = np.array(temp_data_V[-seq_len:])
-        scaled_input_V = scaler_V.transform(latest_input_V)
-        scaled_input_V = scaled_input_V.reshape(1, seq_len, 4)
-        next_pred_scaled = model_V.predict(scaled_input_V)[0][0]
-        dummy_ma10 = dummy_ma20 = next_pred_scaled  # Approximation
-        dummy_vol = 0.01  # Constant dummy volatility
-        next_input = [next_pred_scaled, dummy_ma10, dummy_ma20, dummy_vol]
-        next_pred = scaler_V.inverse_transform([[next_pred_scaled, dummy_ma10, dummy_ma20, dummy_vol]])[0][0]
-        temp_data_V.append(next_input)
-    pred_V = temp_data_V[-1][0]
+    temp_data_M = data['Close_M'].values[-seq_len:].reshape(-1, 1)
+    temp_data_V = data[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].values[-seq_len:]
 
-    return pred_M, pred_V
+    for _ in range(days_to_predict):
+        scaled_M = scaler_M.transform(temp_data_M[-seq_len:].reshape(-1, 1))
+        scaled_M = scaled_M.reshape(1, seq_len, 1)
+        pred_scaled_M = model_M.predict(scaled_M)
+        pred_M = scaler_M.inverse_transform(pred_scaled_M)
+        temp_data_M = np.append(temp_data_M, pred_M).reshape(-1, 1)
+
+        scaled_V = scaler_V.transform(temp_data_V[-seq_len:])
+        scaled_V = scaled_V.reshape(1, seq_len, 4)
+        pred_scaled_V = model_V.predict(scaled_V)
+        padded_input = np.hstack((pred_scaled_V, np.zeros((pred_scaled_V.shape[0], 3))))
+        pred_V = scaler_V.inverse_transform(padded_input)[:, 0]
+        new_row_V = np.array([pred_V[0]] * 4).reshape(1, 4)
+        temp_data_V = np.append(temp_data_V, new_row_V, axis=0)
+
+    return temp_data_M[-1][0], temp_data_V[-1][0]
 
 # Load data
 data = load_data()
+
+# Load models and scalers
 model_M = load_model("mastercard_lstm_model.h5")
 model_V = load_model("visa_lstm_model.h5")
 scaler_M = joblib.load("scaler_mastercard.save")
@@ -83,7 +83,7 @@ scaler_V = joblib.load("scaler_visa.save")
 st.sidebar.title("Navigation")
 page = st.sidebar.radio("Go to", ["🏠 Home", "📈 Predict", "ℹ️ Company Info"])
 
-# --- Plotting functions ---
+# --- Plotting and visualization ---
 def plot_historical_prices():
     st.subheader("Stock Prices: 2008–2024")
     fig = go.Figure()
@@ -114,7 +114,7 @@ if page == "🏠 Home":
 
 elif page == "📈 Predict":
     st.title("🔮 Predict Future Stock Prices")
-    user_date = st.date_input("Select a future date (after June 2024)", min_value=datetime(2024, 6, 29), value=datetime(2025, 6, 1))
+    user_date = st.date_input("Select a future date (after June 2024)", min_value=date(2024, 6, 29), value=date(2025, 6, 1))
     if st.button("Predict Stock Prices"):
         pred_M, pred_V = make_future_prediction(user_date)
         if pred_M is None or pred_V is None:
