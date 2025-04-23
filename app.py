@@ -57,6 +57,10 @@ def make_future_prediction(user_date):
     latest_data_M_scaled = scaler_M.transform(latest_data_M.values.reshape(1, -1))
     latest_data_V_scaled = scaler_V.transform(latest_data_V.values.reshape(1, -1))
 
+    # Reshape the input data to match the LSTM input shape (1, timesteps, features)
+    latest_data_M_scaled = latest_data_M_scaled.reshape(1, 1, -1)  # Reshape to (1, 1, features)
+    latest_data_V_scaled = latest_data_V_scaled.reshape(1, 1, -1)  # Reshape to (1, 1, features)
+
     # Make predictions for the selected future date
     pred_M_scaled = model_M.predict(latest_data_M_scaled)
     pred_V_scaled = model_V.predict(latest_data_V_scaled)
@@ -178,42 +182,16 @@ elif page == "📈 Predict":
 
             # Buy/Sell Advice
             st.subheader("💡 Investment Advice")
-            advice_M = "Buy" if pred_M < data['Close_M'].iloc[-1] else "Sell"
-            advice_V = "Buy" if pred_V < data['Close_V'].iloc[-1] else "Sell"
-            st.write(f"➡️ **Mastercard Advice**: {advice_M}")
-            st.write(f"➡️ **Visa Advice**: {advice_V}")
-
-            # Plot with future point
-            future_date = pd.to_datetime(user_date)
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=data.index, y=data['Close_M'], name='Mastercard Historical', line=dict(color='green')))
-            fig.add_trace(go.Scatter(x=[future_date], y=[pred_M], name='Mastercard Prediction', mode='markers+lines', line=dict(color='darkgreen', dash='dot')))
-
-            fig.add_trace(go.Scatter(x=data.index, y=data['Close_V'], name='Visa Historical', line=dict(color='blue')))
-            fig.add_trace(go.Scatter(x=[future_date], y=[pred_V], name='Visa Prediction', mode='markers+lines', line=dict(color='navy', dash='dot')))
-
-            fig.update_layout(title="Stock Prices with Prediction", xaxis_title="Date", yaxis_title="Price (USD)")
-            st.plotly_chart(fig, use_container_width=True)
+            advice_M = "Buy" if pred_M > data['Close_M'].iloc[-1] else "Sell"
+            advice_V = "Buy" if pred_V > data['Close_V'].iloc[-1] else "Sell"
+            
+            st.write(f"Mastercard: {advice_M}")
+            st.write(f"Visa: {advice_V}")
 
 elif page == "ℹ️ Company Info":
-    st.title("ℹ️ About Visa and Mastercard")
-    st.subheader("Visa Inc.")
-    st.markdown("""
-    Visa Inc. is a world leader in digital payments, facilitating transactions between consumers, merchants, and financial institutions across more than 200 countries.
-    
-    - **Ticker**: V
-    - **Market Cap**: $500B+
-    - **Founded**: 1958
-    - **Headquarters**: Foster City, California
-    """)
-
-    st.subheader("Mastercard Inc.")
-    st.markdown("""
-    Mastercard is a global technology company in the payments industry. Their mission is to connect and power an inclusive digital economy.
-
-    - **Ticker**: MA
-    - **Market Cap**: $400B+
-    - **Founded**: 1966
-    - **Headquarters**: Purchase, New York
-    """)
+    st.title("📢 Visa & Mastercard Info")
+    st.write("Visa and Mastercard are two of the largest companies in the global payments industry.")
+    st.write("Visa Inc. is an American multinational financial services corporation headquartered in Foster City, California.")
+    st.write("Mastercard is an American multinational financial services corporation headquartered in Purchase, New York.")
+    st.write("Both companies provide payment solutions to businesses, governments, and consumers worldwide.")
 
