@@ -6,19 +6,21 @@ import plotly.graph_objects as go
 import joblib
 from tensorflow.keras.models import load_model
 
-# Set page config
+# Page config
 st.set_page_config(page_title="Visa & Mastercard Stocks", layout="wide")
 
-# --- Load and process data ---
+# Load data
+@st.cache_data
 def load_data():
     data = pd.read_csv("MVS.csv")
-    data["Date"] = pd.to_datetime(data["Date"])
-    data.set_index("Date", inplace=True)
-
+    date_column = next((col for col in data.columns if pd.to_datetime(data[col], errors='coerce').notna().all()), None)
+    if date_column is None:
+        raise ValueError("No datetime column found in the CSV file.")
+    data[date_column] = pd.to_datetime(data[date_column])
+    data.set_index(date_column, inplace=True)
     data['MA10_V'] = data['Close_V'].rolling(window=10).mean()
     data['MA20_V'] = data['Close_V'].rolling(window=20).mean()
     data['Volatility_V'] = data['Close_V'].rolling(window=10).std()
-
     data.dropna(inplace=True)
     return data
 
@@ -30,55 +32,62 @@ model_V = load_model("visa_lstm_model.h5")
 scaler_M = joblib.load("scaler_mastercard.save")
 scaler_V = joblib.load("scaler_visa.save")
 
+# Constants
+seq_len = 60
+
 # Prediction function
 def make_future_prediction(user_date):
-    today = datetime.now()
-    days_to_predict = (user_date - today.date()).days
-    seq_len = 60
+    today = data.index[-1].date()
+    days_to_predict = (user_date - today).days
 
-    temp_data_M = data['Close_M'].values[-seq_len:].tolist()
-    temp_data_V = data[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].values[-seq_len:].tolist()
+    if days_to_predict <= 0:
+        st.error("Please select a future date beyond the last historical data.")
+        return None, None
+
+    temp_data_M = data[['Close_M']].values.tolist()
+    temp_data_V = data[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].values.tolist()
 
     for _ in range(days_to_predict):
-        scaled_M = scaler_M.transform(np.array(temp_data_M[-seq_len:]).reshape(-1, 1))
-        scaled_M_input = scaled_M.reshape(1, seq_len, 1)
-        pred_M = model_M.predict(scaled_M_input, verbose=0)
-        inv_pred_M = scaler_M.inverse_transform(pred_M)[0][0]
-        temp_data_M.append(inv_pred_M)
+        last_seq_M = scaler_M.transform(np.array(temp_data_M[-seq_len:]).reshape(-1, 1)).reshape(1, seq_len, 1)
+        last_seq_V = scaler_V.transform(np.array(temp_data_V[-seq_len:])).reshape(1, seq_len, 4)
 
-        scaled_V = scaler_V.transform(np.array(temp_data_V[-seq_len:]))
-        scaled_V_input = scaled_V.reshape(1, seq_len, 4)
-        pred_V = model_V.predict(scaled_V_input, verbose=0)
-        padding = np.zeros((1, 3))
-        inv_pred_V = scaler_V.inverse_transform(np.hstack((pred_V, padding)))[0][0]
-        last_v_row = temp_data_V[-1][:]
-        temp_data_V.append([inv_pred_V] + last_v_row[1:])
+        pred_M_scaled = model_M.predict(last_seq_M, verbose=0)
+        pred_V_scaled = model_V.predict(last_seq_V, verbose=0)
 
-    return inv_pred_M, inv_pred_V
+        pred_M = scaler_M.inverse_transform(pred_M_scaled)[0][0]
+        pred_V = scaler_V.inverse_transform(np.hstack([pred_V_scaled, np.zeros((1, 3))]))[0][0]
 
-# --- Plotting functions ---
-def plot_historical_prices():
-    st.subheader("Stock Prices: 2008–2024")
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=data.index, y=data['Close_M'], mode='lines', name='MasterCard Close', line=dict(color='green')))
-    fig.add_trace(go.Scatter(x=data.index, y=data['Close_V'], mode='lines', name='Visa Close', line=dict(color='blue')))
-    fig.update_layout(title='Stock Prices of MasterCard and Visa', xaxis_title='Date', yaxis_title='Stock Price (USD)', hovermode='x unified')
-    st.plotly_chart(fig, use_container_width=True)
+        temp_data_M.append([pred_M])
+        temp_data_V.append([pred_V]*4)  # Repeat prediction for features
 
-def plot_volumes():
-    st.subheader("Yearly Trading Volume: 2008–2024")
-    yearly_volume = data.groupby(data.index.year)[['Volume_M', 'Volume_V']].sum()
-    yearly_volume.index = yearly_volume.index.astype(str)
-    fig = go.Figure()
-    fig.add_trace(go.Bar(x=yearly_volume.index, y=yearly_volume['Volume_M'], name='Mastercard', marker=dict(color='blue'), opacity=0.7))
-    fig.add_trace(go.Bar(x=yearly_volume.index, y=yearly_volume['Volume_V'], name='Visa', marker=dict(color='orange'), opacity=0.7))
-    fig.update_layout(title='Yearly Trading Volume for Mastercard and Visa (2008–2024)', xaxis_title='Year', yaxis_title='Trading Volume (USD)', barmode='group', hovermode='x unified')
-    st.plotly_chart(fig, use_container_width=True)
+    last_price_M = data['Close_M'].iloc[-1]
+    last_price_V = data['Close_V'].iloc[-1]
+    pred_M = max(pred_M, last_price_M)
+    pred_V = max(pred_V, last_price_V)
 
-# --- Streamlit UI ---
+    return pred_M, pred_V
+
+# UI setup
 st.sidebar.title("Navigation")
 page = st.sidebar.radio("Go to", ["🏠 Home", "📈 Predict", "ℹ️ Company Info"])
 
+# Visualizations
+def plot_historical_prices():
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=data.index, y=data['Close_M'], mode='lines', name='MasterCard', line=dict(color='green')))
+    fig.add_trace(go.Scatter(x=data.index, y=data['Close_V'], mode='lines', name='Visa', line=dict(color='blue')))
+    fig.update_layout(title='Stock Prices (2008–2024)', xaxis_title='Date', yaxis_title='Price (USD)', hovermode='x')
+    st.plotly_chart(fig, use_container_width=True)
+
+def plot_volumes():
+    yearly_volume = data.groupby(data.index.year)[['Volume_M', 'Volume_V']].sum()
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=yearly_volume.index.astype(str), y=yearly_volume['Volume_M'], name='MasterCard', marker_color='blue'))
+    fig.add_trace(go.Bar(x=yearly_volume.index.astype(str), y=yearly_volume['Volume_V'], name='Visa', marker_color='orange'))
+    fig.update_layout(title='Yearly Trading Volume', xaxis_title='Year', yaxis_title='Volume', barmode='group')
+    st.plotly_chart(fig, use_container_width=True)
+
+# Page routing
 if page == "🏠 Home":
     st.title("🏦 Visa & Mastercard - Stock Market Overview")
     col1, col2 = st.columns(2)
@@ -86,28 +95,28 @@ if page == "🏠 Home":
         plot_historical_prices()
     with col2:
         plot_volumes()
-    st.success("Use the sidebar to navigate to the prediction page or company info.")
+    st.success("Navigate to prediction or company info via sidebar.")
 
 elif page == "📈 Predict":
     st.title("🔮 Predict Future Stock Prices")
-    max_date = datetime(2025, 12, 31).date()
-    user_date = st.date_input("Select a future date (after June 2024)", min_value=datetime(2024, 6, 29).date(), max_value=max_date, value=datetime(2025, 6, 1).date())
+    user_date = st.date_input("Select a future date (max Dec 2025)", min_value=data.index[-1].date() + timedelta(days=1), max_value=datetime(2025, 12, 31).date())
 
     if st.button("Predict Stock Prices"):
         pred_M, pred_V = make_future_prediction(user_date)
-        st.success(f"📅 Predicted Price on {user_date.strftime('%Y-%m-%d')}")
-        st.write(f"💳 **Visa**: ${pred_V:.2f}")
-        st.write(f"💰 **Mastercard**: ${pred_M:.2f}")
+        if pred_M and pred_V:
+            st.success(f"📅 Predicted Price on {user_date.strftime('%Y-%m-%d')}")
+            st.write(f"💳 **Visa**: ${pred_V:.2f}")
+            st.write(f"💰 **Mastercard**: ${pred_M:.2f}")
 
-        st.subheader("💡 Investment Advice")
-        advice_M = "Buy" if pred_M > data['Close_M'].iloc[-1] else "Sell"
-        advice_V = "Buy" if pred_V > data['Close_V'].iloc[-1] else "Sell"
-        st.write(f"Mastercard: {advice_M}")
-        st.write(f"Visa: {advice_V}")
+            advice_M = "Buy" if pred_M > data['Close_M'].iloc[-1] else "Sell"
+            advice_V = "Buy" if pred_V > data['Close_V'].iloc[-1] else "Sell"
+
+            st.subheader("💡 Investment Advice")
+            st.write(f"Mastercard: {advice_M}")
+            st.write(f"Visa: {advice_V}")
 
 elif page == "ℹ️ Company Info":
-    st.title("📢 Visa & Mastercard Info")
-    st.write("Visa and Mastercard are two of the largest companies in the global payments industry.")
-    st.write("Visa Inc. is an American multinational financial services corporation headquartered in Foster City, California.")
-    st.write("Mastercard is an American multinational financial services corporation headquartered in Purchase, New York.")
-    st.write("Both companies provide payment solutions to businesses, governments, and consumers worldwide.")
+    st.title("📢 Company Info")
+    st.write("Visa and Mastercard are global leaders in digital payments.")
+    st.write("Visa Inc. is based in Foster City, California.")
+    st.write("Mastercard is headquartered in Purchase, New York.")
