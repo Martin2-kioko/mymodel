@@ -113,21 +113,25 @@ def plot_volumes():
 
     st.plotly_chart(fig, use_container_width=True)
 
-# --- Utility function to make predictions ---
+# --- Prediction Logic ---
 def make_future_prediction(user_date):
     # Ensure the date is in the right format
     future_date = pd.to_datetime(user_date)
     
     # Prepare the input data for prediction (you may need to adjust this based on how your models expect input)
-    # Assuming the models take the last available data to make predictions
-    latest_data_M = data[['Close_M', 'Volume_M']].iloc[-1]  # Last row for Mastercard
-    latest_data_V = data[['Close_V', 'Volume_V']].iloc[-1]  # Last row for Visa
+    # Get the most recent data
+    latest_data_M = data[['Close_M']].tail(1)  # Only Close_M for Mastercard
+    latest_data_V = data[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].tail(1)  # Multiple features for Visa
     
     # Normalize the input data (use the scaler you loaded earlier)
-    latest_data_M_scaled = scaler_M.transform(latest_data_M.values.reshape(1, -1))
-    latest_data_V_scaled = scaler_V.transform(latest_data_V.values.reshape(1, -1))
-
-    # Reshape the data to the shape the model expects
+    try:
+        latest_data_M_scaled = scaler_M.transform(latest_data_M.values.reshape(1, -1))
+        latest_data_V_scaled = scaler_V.transform(latest_data_V.values.reshape(1, -1))
+    except ValueError as e:
+        st.error(f"Error with scaling input data: {e}")
+        return None, None
+    
+    # Reshape the data to the shape the model expects (3D input for LSTM)
     latest_data_M_scaled = latest_data_M_scaled.reshape((1, 1, latest_data_M_scaled.shape[1]))
     latest_data_V_scaled = latest_data_V_scaled.reshape((1, 1, latest_data_V_scaled.shape[1]))
 
