@@ -9,7 +9,7 @@ from tensorflow.keras.models import load_model
 # Set page config as the first command
 st.set_page_config(page_title="Visa & Mastercard Stocks", layout="wide")
 
-# Function to load data dynamically by detecting the date column
+# --- Utility functions ---
 def load_data():
     # Read CSV file
     data = pd.read_csv("MVS.csv")
@@ -42,11 +42,33 @@ def load_data():
     
     return data
 
+# --- Prediction function ---
+def make_future_prediction(user_date):
+    # Ensure that the required columns are present
+    if 'Close_V' not in data.columns or 'MA10_V' not in data.columns or 'MA20_V' not in data.columns or 'Volatility_V' not in data.columns:
+        st.error("Required columns for prediction are missing.")
+        return None, None
+
+    # Get the most recent data point for both Visa and Mastercard
+    latest_data_M = data[['Close_M']].tail(1)  # Only the closing price for Mastercard
+    latest_data_V = data[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].tail(1)  # Multiple features for Visa
+
+    # Rescale the data
+    latest_data_M_scaled = scaler_M.transform(latest_data_M.values.reshape(1, -1))
+    latest_data_V_scaled = scaler_V.transform(latest_data_V.values.reshape(1, -1))
+
+    # Make predictions for the selected future date
+    pred_M_scaled = model_M.predict(latest_data_M_scaled)
+    pred_V_scaled = model_V.predict(latest_data_V_scaled)
+
+    # Inverse scaling
+    pred_M = scaler_M.inverse_transform(pred_M_scaled)
+    pred_V = scaler_V.inverse_transform(np.hstack((pred_V_scaled, np.zeros((pred_V_scaled.shape[0], 3)))) )[:, 0]
+
+    return pred_M[0][0], pred_V[0]
+
 # Load data
 data = load_data()
-
-# Display column names to help debug
-st.write("Columns in the dataset:", data.columns)
 
 # Load models and scalers
 model_M = load_model("mastercard_lstm_model.h5")
@@ -58,7 +80,7 @@ scaler_V = joblib.load("scaler_visa.save")
 st.sidebar.title("Navigation")
 page = st.sidebar.radio("Go to", ["🏠 Home", "📈 Predict", "ℹ️ Company Info"])
 
-# --- Utility functions ---
+# --- Plotting and visualization ---
 def plot_historical_prices():
     st.subheader("Stock Prices: 2008–2024")
     
@@ -195,27 +217,3 @@ elif page == "ℹ️ Company Info":
     - **Headquarters**: Purchase, New York
     """)
 
-# --- Prediction Function ---
-def make_future_prediction(user_date):
-    # Check for the columns in data to avoid KeyError
-    if 'Close_V' not in data.columns or 'MA10_V' not in data.columns or 'MA20_V' not in data.columns or 'Volatility_V' not in data.columns:
-        st.error("Required columns for prediction are missing.")
-        return None, None
-
-    # Get the most recent data point for both Visa and Mastercard
-    latest_data_M = data[['Close_M']].tail(1)  # Only the closing price for Mastercard
-    latest_data_V = data[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].tail(1)  # Multiple features for Visa
-
-    # Rescale the data
-    latest_data_M_scaled = scaler_M.transform(latest_data_M.values.reshape(1, -1))
-    latest_data_V_scaled = scaler_V.transform(latest_data_V.values.reshape(1, -1))
-
-    # Make predictions for the selected future date
-    pred_M_scaled = model_M.predict(latest_data_M_scaled)
-    pred_V_scaled = model_V.predict(latest_data_V_scaled)
-
-    # Inverse scaling
-    pred_M = scaler_M.inverse_transform(pred_M_scaled)
-    pred_V = scaler_V.inverse_transform(np.hstack((pred_V_scaled, np.zeros((pred_V_scaled.shape[0], 3)))) )[:, 0]
-
-    return pred_M[0][0], pred_V[0]
