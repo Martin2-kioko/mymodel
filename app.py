@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import plotly.graph_objects as go
 import joblib
 from tensorflow.keras.models import load_model
+import time
 
 # Page config
 st.set_page_config(page_title="Visa & Mastercard Stocks", layout="wide")
@@ -96,40 +97,50 @@ if page == "🏠 Home":
     with col2:
         plot_volumes()
 
-    # New Market News and Insights Section
-    st.subheader("📰 Market News and Insights")
-    st.markdown("Stay updated with the latest news and insights on Visa, Mastercard, and the financial market.")
+    # Real-Time Transaction Alerts Simulator Section
+    st.subheader("🔔 Real-Time Transaction Alerts Simulator")
+    st.markdown("Monitor simulated real-time transactions for Visa and Mastercard cards.")
 
-    # Placeholder news items (in a real app, fetch from an API like NewsAPI or Yahoo Finance API)
-    news_items = [
-        {
-            "title": "Visa Expands Digital Payment Solutions in Europe",
-            "summary": "Visa announced a new partnership to enhance contactless payments across Europe, aiming to increase transaction speed and security.",
-            "label": "Visa",
-            "color": "orange",
-            "date": "April 25, 2025"
-        },
-        {
-            "title": "Mastercard Reports Strong Q1 Earnings",
-            "summary": "Mastercard's Q1 2025 earnings exceeded expectations, driven by growth in cross-border transactions and digital wallet adoption.",
-            "label": "Mastercard",
-            "color": "blue",
-            "date": "April 24, 2025"
-        },
-        {
-            "title": "Financial Sector Faces Uncertainty Amid Tariff Policies",
-            "summary": "New tariff policies announced by the U.S. government may impact the financial sector, including payment companies like Visa and Mastercard.",
-            "label": "Market",
-            "color": "gray",
-            "date": "April 23, 2025"
-        }
+    # Simulated transactions data
+    transactions = [
+        {"card": "Visa", "amount": 45.30, "merchant": "Starbucks", "location": "New York, NY", "time": "02:25 PM EAT, Apr 27, 2025"},
+        {"card": "Mastercard", "amount": 120.50, "merchant": "Amazon", "location": "Online", "time": "02:26 PM EAT, Apr 27, 2025"},
+        {"card": "Visa", "amount": 89.99, "merchant": "Target", "location": "Los Angeles, CA", "time": "02:27 PM EAT, Apr 27, 2025"},
+        {"card": "Mastercard", "amount": 15.75, "merchant": "Uber", "location": "Chicago, IL", "time": "02:28 PM EAT, Apr 27, 2025"},
+        {"card": "Visa", "amount": 250.00, "merchant": "Best Buy", "location": "Miami, FL", "time": "02:29 PM EAT, Apr 27, 2025"},
     ]
 
-    # Display news items in a card-like format
-    for item in news_items:
-        with st.expander(f"{item['title']} ({item['date']})"):
-            st.markdown(f"<span style='color: {item['color']}'>{item['label']}</span>: {item['summary']}", unsafe_allow_html=True)
-            st.markdown("[Read More](#)")  # Placeholder link
+    # Create a placeholder for the ticker
+    ticker_placeholder = st.empty()
+    pause_button = st.button("Pause Ticker")
+
+    # Simulate real-time updates
+    if "ticker_index" not in st.session_state:
+        st.session_state.ticker_index = 0
+    if "paused" not in st.session_state:
+        st.session_state.paused = False
+
+    if pause_button:
+        st.session_state.paused = not st.session_state.paused
+
+    if not st.session_state.paused:
+        # Update ticker every 2 seconds
+        with ticker_placeholder.container():
+            idx = st.session_state.ticker_index % len(transactions)
+            transaction = transactions[idx]
+            color = "orange" if transaction["card"] == "Visa" else "blue"
+            st.markdown(
+                f"<span style='color: {color}'>{transaction['card']}</span>: ${transaction['amount']:.2f} at {transaction['merchant']} ({transaction['location']}) - {transaction['time']}",
+                unsafe_allow_html=True
+            )
+            st.session_state.ticker_index += 1
+            time.sleep(2)
+            st.experimental_rerun()
+
+    # Display a simple statistic
+    total_transactions = len(transactions)
+    total_amount = sum(txn["amount"] for txn in transactions)
+    st.markdown(f"**Stats**: {total_transactions} transactions simulated, Total Amount: ${total_amount:.2f}")
 
     st.success("Navigate to prediction or company info via sidebar.")
 
