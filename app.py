@@ -45,30 +45,51 @@ def make_future_prediction(user_date):
         st.error("Please select a future date beyond the last historical data.")
         return None, None
 
+    # Define minimum prices (June 2024 + 5% growth for conservatism)
+    min_price_M = 441.16 * 1.05  # Mastercard: $441.16 + 5% = $463.22
+    min_price_V = 262.47 * 1.05  # Visa: $262.47 + 5% = $275.59
+
+    # Define max realistic prices for Dec 2025 (based on analyst forecasts)
+    max_price_M = 658.00  # Analyst max for Mastercard (CoinPriceForecast)
+    max_price_V = 503.00  # Analyst max for Visa (CoinPriceForecast)
+
     # Initialize temporary data
     temp_data_M = data[['Close_M']].values.tolist()
-    temp_data_V = data[['Close_V']].values.tolist()  # Only Close_V for now
+    temp_data_V = data[['Close_V']].values.tolist()
     temp_features_V = data[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].values.tolist()
 
-    for _ in range(days_to_predict):
+    last_price_M = data['Close_M'].iloc[-1]
+    last_price_V = data['Close_V'].iloc[-1]
+
+    for i in range(days_to_predict):
         # Mastercard prediction
         last_seq_M = scaler_M.transform(np.array(temp_data_M[-seq_len:]).reshape(-1, 1)).reshape(1, seq_len, 1)
         pred_M_scaled = model_M.predict(last_seq_M, verbose=0)
         pred_M = scaler_M.inverse_transform(pred_M_scaled)[0][0]
-        temp_data_M.append([pred_M])
 
         # Visa prediction
         last_seq_V = scaler_V.transform(np.array(temp_features_V[-seq_len:])).reshape(1, seq_len, 4)
         pred_V_scaled = model_V.predict(last_seq_V, verbose=0)
         pred_V = scaler_V.inverse_transform(np.hstack([pred_V_scaled, np.zeros((1, 3))]))[0][0]
+
+        # Smooth predictions with linear interpolation
+        weight = (i + 1) / days_to_predict
+        target_M = last_price_M + (max_price_M - last_price_M) * weight
+        target_V = last_price_V + (max_price_V - last_price_V) * weight
+
+        # Constrain predictions
+        pred_M = min(max(pred_M, min_price_M), target_M)
+        pred_V = min(max(pred_V, min_price_V), target_V)
+
+        temp_data_M.append([pred_M])
         temp_data_V.append([pred_V])
 
-        # Recalculate features for Visa
+        # Recalculate Visa features
         temp_df_V = pd.DataFrame(temp_data_V, columns=['Close_V'])
         temp_df_V['MA10_V'] = temp_df_V['Close_V'].rolling(window=10, min_periods=1).mean()
         temp_df_V['MA20_V'] = temp_df_V['Close_V'].rolling(window=20, min_periods=1).mean()
         temp_df_V['Volatility_V'] = temp_df_V['Close_V'].rolling(window=10, min_periods=1).std()
-        temp_df_V.fillna(method='bfill', inplace=True)  # Handle initial NaNs
+        temp_df_V.fillna(method='bfill', inplace=True)
         temp_features_V.append(temp_df_V[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].iloc[-1].values.tolist())
 
     return pred_M, pred_V
