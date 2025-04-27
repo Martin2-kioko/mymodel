@@ -64,8 +64,8 @@ def make_future_prediction_core(user_date):
     # Define price ranges
     min_price_M = 460.00  # Mastercard minimum
     max_price_M = 500.00  # Mastercard maximum (Dec 2025)
-    min_price_V = 270.00  # Visa minimum
-    max_price_V = 310.00  # Visa maximum (Dec 2025)
+    min_price_V = 260.00  # Visa minimum
+    max_price_V = 300.00  # Visa maximum (Dec 2025)
 
     # Get last historical prices
     last_price_M = data['Close_M'].iloc[-1]
@@ -103,17 +103,19 @@ def make_future_prediction_core(user_date):
     predictions_M = scaler_M.inverse_transform(pred_M_scaled).flatten()
     predictions_V = scaler_V.inverse_transform(np.hstack([pred_V_scaled, np.zeros((weeks_to_predict, 3))]))[:, 0]
 
-    # Enforce price ranges with interpolated targets and slight LSTM variation
+    # Enforce price ranges with interpolated targets and random variation
     weekly_dates = pd.date_range(start=today + timedelta(days=7), periods=weeks_to_predict, freq='W')
     total_days = (datetime(2025, 12, 31).date() - today).days
+    predictions_M = np.zeros(weeks_to_predict)
+    predictions_V = np.zeros(weeks_to_predict)
     for i in range(weeks_to_predict):
         current_days = (weekly_dates[i].date() - today).days
         weight = current_days / total_days
         target_M = min_price_M + (max_price_M - min_price_M) * weight
         target_V = min_price_V + (max_price_V - min_price_V) * weight
-        # Add slight variation from LSTM (within ±2% of target)
-        variation_M = (predictions_M[i] - target_M) * 0.02
-        variation_V = (predictions_V[i] - target_V) * 0.02
+        # Add random variation (±5% of target) for realism
+        variation_M = np.random.uniform(-0.05, 0.05) * target_M
+        variation_V = np.random.uniform(-0.05, 0.05) * target_V
         predictions_M[i] = min(max(target_M + variation_M, min_price_M), max_price_M)
         predictions_V[i] = min(max(target_V + variation_V, min_price_V), max_price_V)
 
