@@ -74,8 +74,8 @@ page = st.sidebar.radio("Go to", ["🏠 Home", "📈 Predict", "ℹ️ Company I
 # Visualizations
 def plot_historical_prices():
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=data.index, y=data['Close_M'], mode='lines', name='MasterCard', line=dict(color='green')))
-    fig.add_trace(go.Scatter(x=data.index, y=data['Close_V'], mode='lines', name='Visa', line=dict(color='blue')))
+    fig.add_trace(go.Scatter(x=data.index, y=data['Close_M'], mode='lines', name='MasterCard', line=dict(color='blue')))
+    fig.add_trace(go.Scatter(x=data.index, y=data['Close_V'], mode='lines', name='Visa', line=dict(color='orange')))
     fig.update_layout(title='Stock Prices (2008–2024)', xaxis_title='Date', yaxis_title='Price (USD)', hovermode='x')
     st.plotly_chart(fig, use_container_width=True)
 
@@ -107,8 +107,8 @@ elif page == "📈 Predict":
         pred_M, pred_V = make_future_prediction(user_date)
         if pred_M and pred_V:
             st.success(f"📅 Predicted Price on {user_date.strftime('%Y-%m-%d')}")
-            st.write(f"💳 **Visa**: ${pred_V:.2f}")
-            st.write(f"💰 **Mastercard**: ${pred_M:.2f}")
+            st.markdown(f"💳 **Visa**: <span style='color: orange'>${pred_V:.2f}</span>", unsafe_allow_html=True)
+            st.markdown(f"💰 **Mastercard**: <span style='color: blue'>${pred_M:.2f}</span>", unsafe_allow_html=True)
 
             # Use 10-day moving average for investment advice
             ma10_M = data['MA10_M'].iloc[-1]
@@ -117,8 +117,8 @@ elif page == "📈 Predict":
             advice_V = "Buy" if pred_V > ma10_V else "Sell"
 
             st.subheader("💡 Investment Advice")
-            st.write(f"Mastercard: {advice_M}")
-            st.write(f"Visa: {advice_V}")
+            st.markdown(f"Mastercard: <span style='color: blue'>{advice_M}</span>", unsafe_allow_html=True)
+            st.markdown(f"Visa: <span style='color: orange'>{advice_V}</span>", unsafe_allow_html=True)
 
             # Visualize historical and predicted prices
             st.subheader("📊 Price Trend")
@@ -135,10 +135,10 @@ elif page == "📈 Predict":
                 'Mastercard': plot_predictions_M
             })
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=data.index, y=data['Close_V'], mode='lines', name='Visa Historical', line=dict(color='blue')))
-            fig.add_trace(go.Scatter(x=data.index, y=data['Close_M'], mode='lines', name='Mastercard Historical', line=dict(color='green')))
-            fig.add_trace(go.Scatter(x=future_prices['Date'], y=future_prices['Visa'], mode='lines', name='Visa Predicted', line=dict(color='blue', dash='dash')))
-            fig.add_trace(go.Scatter(x=future_prices['Date'], y=future_prices['Mastercard'], mode='lines', name='Mastercard Predicted', line=dict(color='green', dash='dash')))
+            fig.add_trace(go.Scatter(x=data.index, y=data['Close_V'], mode='lines', name='Visa Historical', line=dict(color='orange')))
+            fig.add_trace(go.Scatter(x=data.index, y=data['Close_M'], mode='lines', name='Mastercard Historical', line=dict(color='blue')))
+            fig.add_trace(go.Scatter(x=future_prices['Date'], y=future_prices['Visa'], mode='lines', name='Visa Predicted', line=dict(color='orange', dash='dash')))
+            fig.add_trace(go.Scatter(x=future_prices['Date'], y=future_prices['Mastercard'], mode='lines', name='Mastercard Predicted', line=dict(color='blue', dash='dash')))
             fig.update_layout(title='Historical and Predicted Stock Prices', xaxis_title='Date', yaxis_title='Price (USD)', hovermode='x')
             st.plotly_chart(fig, use_container_width=True)
 
