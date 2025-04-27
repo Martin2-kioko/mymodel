@@ -117,8 +117,8 @@ elif page == "📈 Predict":
             advice_V = "Buy" if pred_V > ma10_V else "Sell"
 
             st.subheader("💡 Investment Advice")
-            st.write(f"Mastercard: {advice_M} (Predicted: ${pred_M:.2f}, 10-day MA: ${ma10_M:.2f})")
-            st.write(f"Visa: {advice_V} (Predicted: ${pred_V:.2f}, 10-day MA: ${ma10_V:.2f})")
+            st.write(f"Mastercard: {advice_M}")
+            st.write(f"Visa: {advice_V}")
 
             # Visualize historical and predicted prices
             st.subheader("📊 Price Trend")
