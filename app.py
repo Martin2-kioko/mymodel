@@ -41,7 +41,7 @@ def make_future_prediction(user_date):
         user_date = user_date.date()
 
     # Define prediction period
-    start_date = datetime(2025, 4, 1).date()
+    start_date = data.index[-1].date()  # Last historical date (e.g., 2024-06-30)
     end_date = datetime(2025, 12, 31).date()
 
     # Check if user_date is within valid range
@@ -49,9 +49,9 @@ def make_future_prediction(user_date):
         return None, None
 
     # Define price ranges
-    min_price_M = 460.00  # Mastercard minimum
+    min_price_M = 460.00  # Mastercard minimum (at start_date)
     max_price_M = 500.00  # Mastercard maximum (Dec 2025)
-    min_price_V = 260.00  # Visa minimum
+    min_price_V = 260.00  # Visa minimum (at start_date)
     max_price_V = 300.00  # Visa maximum (Dec 2025)
 
     # Calculate weight based on user_date
@@ -97,7 +97,9 @@ if page == "🏠 Home":
 
 elif page == "📈 Predict":
     st.title("🔮 Predict Future Stock Prices")
-    user_date = st.date_input("Select a future date (max Dec 2025)", min_value=datetime(2025, 4, 1).date(), max_value=datetime(2025, 12, 31).date())
+    user_date = st.date_input("Select a future date (max Dec 2025)", 
+                              min_value=data.index[-1].date() + timedelta(days=1), 
+                              max_value=datetime(2025, 12, 31).date())
 
     if st.button("Predict Stock Prices"):
         pred_M, pred_V = make_future_prediction(user_date)
@@ -115,7 +117,7 @@ elif page == "📈 Predict":
 
             # Visualize historical and predicted prices
             st.subheader("📊 Price Trend")
-            future_dates = pd.date_range(start=datetime(2025, 4, 1), end=user_date, freq='W')
+            future_dates = pd.date_range(start=data.index[-1].date() + timedelta(days=1), end=user_date, freq='W')
             plot_predictions_M = []
             plot_predictions_V = []
             for d in future_dates:
