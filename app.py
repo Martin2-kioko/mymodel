@@ -21,6 +21,8 @@ def load_data():
     data['MA10_V'] = data['Close_V'].rolling(window=10).mean()
     data['MA20_V'] = data['Close_V'].rolling(window=20).mean()
     data['Volatility_V'] = data['Close_V'].rolling(window=10).std()
+    # Add 10-day moving averages for investment advice
+    data['MA10_M'] = data['Close_M'].rolling(window=10).mean()
     data.dropna(inplace=True)
     return data
 
@@ -108,12 +110,15 @@ elif page == "📈 Predict":
             st.write(f"💳 **Visa**: ${pred_V:.2f}")
             st.write(f"💰 **Mastercard**: ${pred_M:.2f}")
 
-            advice_M = "Buy" if pred_M > data['Close_M'].iloc[-1] else "Sell"
-            advice_V = "Buy" if pred_V > data['Close_V'].iloc[-1] else "Sell"
+            # Use 10-day moving average for investment advice
+            ma10_M = data['MA10_M'].iloc[-1]
+            ma10_V = data['MA10_V'].iloc[-1]
+            advice_M = "Buy" if pred_M > ma10_M else "Sell"
+            advice_V = "Buy" if pred_V > ma10_V else "Sell"
 
             st.subheader("💡 Investment Advice")
-            st.write(f"Mastercard: {advice_M}")
-            st.write(f"Visa: {advice_V}")
+            st.write(f"Mastercard: {advice_M} (Predicted: ${pred_M:.2f}, 10-day MA: ${ma10_M:.2f})")
+            st.write(f"Visa: {advice_V} (Predicted: ${pred_V:.2f}, 10-day MA: ${ma10_V:.2f})")
 
             # Visualize historical and predicted prices
             st.subheader("📊 Price Trend")
@@ -137,9 +142,9 @@ elif page == "📈 Predict":
             fig.update_layout(title='Historical and Predicted Stock Prices', xaxis_title='Date', yaxis_title='Price (USD)', hovermode='x')
             st.plotly_chart(fig, use_container_width=True)
 
-            # Debug: Show prediction range
-            st.write(f"Debug: Mastercard predictions range: ${min(plot_predictions_M):.2f} to ${max(plot_predictions_M):.2f}")
-            st.write(f"Debug: Visa predictions range: ${min(plot_predictions_V):.2f} to ${max(plot_predictions_V):.2f}")
+            # Debug logging (for internal use, not displayed on interface)
+            print(f"Debug: Mastercard predictions range: ${min(plot_predictions_M):.2f} to ${max(plot_predictions_M):.2f}")
+            print(f"Debug: Visa predictions range: ${min(plot_predictions_V):.2f} to ${max(plot_predictions_V):.2f}")
 
 elif page == "ℹ️ Company Info":
     st.title("📊 Company Profiles: Visa & Mastercard")
