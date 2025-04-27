@@ -35,62 +35,129 @@ scaler_V = joblib.load("scaler_visa.save")
 # Constants
 seq_len = 60
 
-# Prediction function
+# Precompute predictions for monthly intervals
 @st.cache_data
-def make_future_prediction(user_date):
+def get_precomputed_predictions():
+    dates = pd.date_range(start=data.index[-1].date() + timedelta(days=1), end="2025-12-31", freq='M')
+    predictions = {}
+    for d in dates:
+        pred_M, pred_V = make_future_prediction_core(d)
+        predictions[d] = (pred_M, pred_V)
+    return predictions
+
+# Core prediction function (used by precomputed and live predictions)
+@st.cache_data
+def make_future_prediction_core(user_date):
     today = data.index[-1].date()
     days_to_predict = (user_date - today).days
 
     if days_to_predict <= 0:
-        st.error("Please select a future date beyond the last historical data.")
         return None, None
 
-    # Define minimum prices (June 2024 + 5% growth for conservatism)
-    min_price_M = 441.16 * 1.05  # Mastercard: $441.16 + 5% = $463.22
-    min_price_V = 262.47 * 1.05  # Visa: $262.47 + 5% = $275.59
+    # Define price ranges
+    min_price_M = 460.00  # Mastercard minimum
+    max_price_M = 500.00  # Mastercard maximum (Dec 2025)
+    min_price_V = 270.00  # Visa minimum
+    max_price_V = 310.00  # Visa maximum (Dec 2025)
 
-    # Define max realistic prices for Dec 2025 (based on analyst forecasts)
-    max_price_M = 658.00  # Analyst max for Mastercard (CoinPriceForecast)
-    max_price_V = 503.00  # Analyst max for Visa (CoinPriceForecast)
+    # Get last historical prices
+    last_price_M = data['Close_M'].iloc[-1]
+    last_price_V = data['Close_V'].iloc[-1]
+
+    # Use weekly predictions (approx. 7 days per step)
+    weeks_to_predict = max(1, (days_to_predict + 6) // 7)  # Round up
 
     # Initialize temporary data
     temp_data_M = data[['Close_M']].values.tolist()
     temp_data_V = data[['Close_V']].values.tolist()
     temp_features_V = data[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].values.tolist()
 
-    last_price_M = data['Close_M'].iloc[-1]
-    last_price_V = data['Close_V'].iloc[-1]
+    # Prepare batch inputs for LSTM
+    batch_inputs_M = []
+    batch_inputs_V = []
+    for i in range(weeks_to_predict):
+        batch_inputs_M.append(np.array(temp_data_M[-seq_len:]).reshape(1, seq_len, 1))
+        batch_inputs_V.append(np.array(temp_features_V[-seq_len:]).reshape(1, seq_len, 4))
+        temp_data_M.append([last_price_M])  # Placeholder
+        temp_data_V.append([last_price_V])
+        temp_features_V.append([last_price_V, last_price_V, last_price_V, 0])
 
-    for i in range(days_to_predict):
-        # Mastercard prediction
-        last_seq_M = scaler_M.transform(np.array(temp_data_M[-seq_len:]).reshape(-1, 1)).reshape(1, seq_len, 1)
-        pred_M_scaled = model_M.predict(last_seq_M, verbose=0)
-        pred_M = scaler_M.inverse_transform(pred_M_scaled)[0][0]
+    # Batch predictions
+    batch_inputs_M = np.vstack(batch_inputs_M)
+    batch_inputs_V = np.vstack(batch_inputs_V)
+    batch_inputs_M = scaler_M.transform(batch_inputs_M.reshape(-1, 1)).reshape(weeks_to_predict, seq_len, 1)
+    batch_inputs_V = scaler_V.transform(batch_inputs_V.reshape(-1, 4)).reshape(weeks_to_predict, seq_len, 4)
 
-        # Visa prediction
-        last_seq_V = scaler_V.transform(np.array(temp_features_V[-seq_len:])).reshape(1, seq_len, 4)
-        pred_V_scaled = model_V.predict(last_seq_V, verbose=0)
-        pred_V = scaler_V.inverse_transform(np.hstack([pred_V_scaled, np.zeros((1, 3))]))[0][0]
+    with st.spinner("Generating predictions..."):
+        pred_M_scaled = model_M.predict(batch_inputs_M, verbose=0)
+        pred_V_scaled = model_V.predict(batch_inputs_V, verbose=0)
 
-        # Smooth predictions with linear interpolation
-        weight = (i + 1) / days_to_predict
-        target_M = last_price_M + (max_price_M - last_price_M) * weight
-        target_V = last_price_V + (max_price_V - last_price_V) * weight
+    # Process predictions
+    predictions_M = scaler_M.inverse_transform(pred_M_scaled).flatten()
+    predictions_V = scaler_V.inverse_transform(np.hstack([pred_V_scaled, np.zeros((weeks_to_predict, 3))]))[:, 0]
 
-        # Constrain predictions
-        pred_M = min(max(pred_M, min_price_M), target_M)
-        pred_V = min(max(pred_V, min_price_V), target_V)
+    # Enforce price ranges and smooth with interpolation
+    weekly_dates = pd.date_range(start=today + timedelta(days=7), periods=weeks_to_predict, freq='W')
+    total_days = (datetime(2025, 12, 31).date() - today).days
+    for i in range(weeks_to_predict):
+        current_days = (weekly_dates[i] - today).days
+        weight = current_days / total_days
+        target_M = max(min_price_M, last_price_M) + (max_price_M - max(min_price_M, last_price_M)) * weight
+        target_V = max(min_price_V, last_price_V) + (max_price_V - max(min_price_V, last_price_V)) * weight
+        predictions_M[i] = min(max(predictions_M[i], min_price_M), target_M)
+        predictions_V[i] = min(max(predictions_V[i], min_price_V), target_V)
 
-        temp_data_M.append([pred_M])
-        temp_data_V.append([pred_V])
+    # Recalculate Visa features using NumPy
+    temp_data_V = data[['Close_V']].values.tolist() + [[p] for p in predictions_V]
+    temp_array_V = np.array(temp_data_V)
+    ma10_v = np.convolve(temp_array_V[:, 0], np.ones(10)/10, mode='valid')
+    ma20_v = np.convolve(temp_array_V[:, 0], np.ones(20)/20, mode='valid')
+    volatility_v = np.array([np.std(temp_array_V[max(0, i-9):i+1]) for i in range(len(temp_array_V))])
+    temp_features_V = [[temp_data_V[i][0], ma10_v[min(i, len(ma10_v)-1)], ma20_v[min(i, len(ma20_v)-1)], volatility_v[i]] for i in range(len(temp_data_V))]
 
-        # Recalculate Visa features
-        temp_df_V = pd.DataFrame(temp_data_V, columns=['Close_V'])
-        temp_df_V['MA10_V'] = temp_df_V['Close_V'].rolling(window=10, min_periods=1).mean()
-        temp_df_V['MA20_V'] = temp_df_V['Close_V'].rolling(window=20, min_periods=1).mean()
-        temp_df_V['Volatility_V'] = temp_df_V['Close_V'].rolling(window=10, min_periods=1).std()
-        temp_df_V.fillna(method='bfill', inplace=True)
-        temp_features_V.append(temp_df_V[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].iloc[-1].values.tolist())
+    # Interpolate for exact date
+    if user_date in weekly_dates:
+        idx = np.where(weekly_dates == user_date)[0][0]
+        pred_M = predictions_M[idx]
+        pred_V = predictions_V[idx]
+    else:
+        idx = min(np.searchsorted(weekly_dates, user_date), weeks_to_predict-1)
+        if idx == 0:
+            pred_M = predictions_M[0]
+            pred_V = predictions_V[0]
+        else:
+            w = (user_date - weekly_dates[idx-1]).days / (weekly_dates[idx] - weekly_dates[idx-1]).days
+            pred_M = predictions_M[idx-1] + w * (predictions_M[idx] - predictions_M[idx-1])
+            pred_V = predictions_V[idx-1] + w * (predictions_V[idx] - predictions_V[idx-1])
+
+    return pred_M, pred_V
+
+# Main prediction function with precomputed lookup
+@st.cache_data
+def make_future_prediction(user_date):
+    precomputed = get_precomputed_predictions()
+    user_date = pd.Timestamp(user_date).date()
+
+    # Check if user_date matches a precomputed date
+    if user_date in precomputed:
+        return precomputed[user_date]
+
+    # Find closest precomputed dates for interpolation
+    precomputed_dates = sorted(precomputed.keys())
+    idx = np.searchsorted(precomputed_dates, user_date)
+    if idx == 0:
+        return precomputed[precomputed_dates[0]]
+    elif idx == len(precomputed_dates):
+        return precomputed[precomputed_dates[-1]]
+
+    # Interpolate between closest dates
+    date_prev = precomputed_dates[idx-1]
+    date_next = precomputed_dates[idx]
+    w = (user_date - date_prev).days / (date_next - date_prev).days
+    pred_M_prev, pred_V_prev = precomputed[date_prev]
+    pred_M_next, pred_V_next = precomputed[date_next]
+    pred_M = pred_M_prev + w * (pred_M_next - pred_M_prev)
+    pred_V = pred_V_prev + w * (pred_V_next - pred_V_prev)
 
     return pred_M, pred_V
 
@@ -142,6 +209,30 @@ elif page == "📈 Predict":
             st.write(f"Mastercard: {advice_M}")
             st.write(f"Visa: {advice_V}")
 
+            # Visualize historical and predicted prices
+            st.subheader("📊 Price Trend")
+            weeks_to_predict = max(1, ((user_date - data.index[-1].date()).days + 6) // 7)
+            future_dates = pd.date_range(start=data.index[-1], periods=weeks_to_predict+1, freq='W')[1:]
+            # Generate predictions for plot
+            plot_predictions_M = []
+            plot_predictions_V = []
+            for d in future_dates:
+                p_M, p_V = make_future_prediction(d)
+                plot_predictions_M.append(p_M)
+                plot_predictions_V.append(p_V)
+            future_prices = pd.DataFrame({
+                'Date': future_dates,
+                'Visa': plot_predictions_V,
+                'Mastercard': plot_predictions_M
+            })
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=data.index, y=data['Close_V'], mode='lines', name='Visa Historical', line=dict(color='blue')))
+            fig.add_trace(go.Scatter(x=data.index, y=data['Close_M'], mode='lines', name='Mastercard Historical', line=dict(color='green')))
+            fig.add_trace(go.Scatter(x=future_prices['Date'], y=future_prices['Visa'], mode='lines', name='Visa Predicted', line=dict(color='blue', dash='dash')))
+            fig.add_trace(go.Scatter(x=future_prices['Date'], y=future_prices['Mastercard'], mode='lines', name='Mastercard Predicted', line=dict(color='green', dash='dash')))
+            fig.update_layout(title='Historical and Predicted Stock Prices', xaxis_title='Date', yaxis_title='Price (USD)', hovermode='x')
+            st.plotly_chart(fig, use_container_width=True)
+
 elif page == "ℹ️ Company Info":
     st.title("📊 Company Profiles: Visa & Mastercard")
     st.markdown("Explore the profiles of Visa and Mastercard, global leaders in digital payments, driving innovation in financial services.")
@@ -192,3 +283,10 @@ elif page == "ℹ️ Company Info":
 
     st.markdown("---")
     st.markdown("**Note**: Information is based on publicly available data as of April 2025.")
+
+# Note: To optimize LSTM models for faster inference, convert to TensorFlow Lite:
+# import tensorflow as tf
+# converter = tf.lite.TFLiteConverter.from_keras_model(model_M)
+# tflite_model = converter.convert()
+# Save and load tflite_model, then use tf.lite.Interpreter for predictions.
+# This requires modifying the prediction logic and is left as a future enhancement.
