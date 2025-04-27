@@ -36,6 +36,7 @@ scaler_V = joblib.load("scaler_visa.save")
 seq_len = 60
 
 # Prediction function
+@st.cache_data
 def make_future_prediction(user_date):
     today = data.index[-1].date()
     days_to_predict = (user_date - today).days
@@ -44,26 +45,31 @@ def make_future_prediction(user_date):
         st.error("Please select a future date beyond the last historical data.")
         return None, None
 
+    # Initialize temporary data
     temp_data_M = data[['Close_M']].values.tolist()
-    temp_data_V = data[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].values.tolist()
+    temp_data_V = data[['Close_V']].values.tolist()  # Only Close_V for now
+    temp_features_V = data[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].values.tolist()
 
     for _ in range(days_to_predict):
+        # Mastercard prediction
         last_seq_M = scaler_M.transform(np.array(temp_data_M[-seq_len:]).reshape(-1, 1)).reshape(1, seq_len, 1)
-        last_seq_V = scaler_V.transform(np.array(temp_data_V[-seq_len:])).reshape(1, seq_len, 4)
-
         pred_M_scaled = model_M.predict(last_seq_M, verbose=0)
-        pred_V_scaled = model_V.predict(last_seq_V, verbose=0)
-
         pred_M = scaler_M.inverse_transform(pred_M_scaled)[0][0]
-        pred_V = scaler_V.inverse_transform(np.hstack([pred_V_scaled, np.zeros((1, 3))]))[0][0]
-
         temp_data_M.append([pred_M])
-        temp_data_V.append([pred_V]*4)  # Repeat prediction for features
 
-    last_price_M = data['Close_M'].iloc[-1]
-    last_price_V = data['Close_V'].iloc[-1]
-    pred_M = max(pred_M, last_price_M)
-    pred_V = max(pred_V, last_price_V)
+        # Visa prediction
+        last_seq_V = scaler_V.transform(np.array(temp_features_V[-seq_len:])).reshape(1, seq_len, 4)
+        pred_V_scaled = model_V.predict(last_seq_V, verbose=0)
+        pred_V = scaler_V.inverse_transform(np.hstack([pred_V_scaled, np.zeros((1, 3))]))[0][0]
+        temp_data_V.append([pred_V])
+
+        # Recalculate features for Visa
+        temp_df_V = pd.DataFrame(temp_data_V, columns=['Close_V'])
+        temp_df_V['MA10_V'] = temp_df_V['Close_V'].rolling(window=10, min_periods=1).mean()
+        temp_df_V['MA20_V'] = temp_df_V['Close_V'].rolling(window=20, min_periods=1).mean()
+        temp_df_V['Volatility_V'] = temp_df_V['Close_V'].rolling(window=10, min_periods=1).std()
+        temp_df_V.fillna(method='bfill', inplace=True)  # Handle initial NaNs
+        temp_features_V.append(temp_df_V[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].iloc[-1].values.tolist())
 
     return pred_M, pred_V
 
@@ -116,7 +122,52 @@ elif page == "📈 Predict":
             st.write(f"Visa: {advice_V}")
 
 elif page == "ℹ️ Company Info":
-    st.title("📢 Company Info")
-    st.write("Visa and Mastercard are global leaders in digital payments.")
-    st.write("Visa Inc. is based in Foster City, California.")
-    st.write("Mastercard is headquartered in Purchase, New York.")
+    st.title("📊 Company Profiles: Visa & Mastercard")
+    st.markdown("Explore the profiles of Visa and Mastercard, global leaders in digital payments, driving innovation in financial services.")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Visa Inc.")
+        st.markdown("""
+        **Overview**: Visa Inc. is a global payments technology company that connects consumers, businesses, banks, and governments in more than 200 countries and territories, enabling them to use digital currency.
+
+        - **Headquarters**: San Francisco, California, USA
+        - **Founded**: 1958
+        - **CEO**: Ryan McInerney
+        - **Market Presence**: Operates in over 200 countries, processing billions of transactions annually
+        - **Key Services**: Credit, debit, prepaid, and commercial payment solutions
+
+        Visa’s network, VisaNet, processes over 500 million transactions daily, offering secure and reliable payment solutions.
+        """)
+        with st.expander("Learn More"):
+            st.markdown("""
+            - **Business Model**: Visa earns revenue through transaction fees, service fees, and data processing.
+            - **Innovation**: Pioneering contactless payments, tokenization, and fraud prevention technologies.
+            - **Sustainability**: Committed to financial inclusion and reducing carbon emissions.
+            Visit [Visa’s official website](https://www.visa.com) for more details.
+            """)
+
+    with col2:
+        st.subheader("Mastercard Incorporated")
+        st.markdown("""
+        **Overview**: Mastercard is a global technology company in the payments industry, providing fast, secure, and convenient payment solutions worldwide.
+
+        - **Headquarters**: Purchase, New York, USA
+        - **Founded**: 1966
+        - **CEO**: Michael Miebach
+        - **Market Presence**: Operates in over 210 countries and territories
+        - **Key Services**: Credit, debit, prepaid, and digital payment platforms
+
+        Mastercard’s global network processes transactions with industry-leading speed and security, empowering consumers and businesses alike.
+        """)
+        with st.expander("Learn More"):
+            st.markdown("""
+            - **Business Model**: Generates revenue through transaction and service fees.
+            - **Innovation**: Leader in digital wallets, blockchain, and cybersecurity solutions.
+            - **Social Impact**: Focuses on financial inclusion, supporting small businesses, and sustainability.
+            Visit [Mastercard’s official website](https://www.mastercard.com) for more details.
+            """)
+
+    st.markdown("---")
+    st.markdown("**Note**: Information is based on publicly available data as of April 2025.")
