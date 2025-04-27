@@ -110,32 +110,36 @@ if page == "🏠 Home":
         {"card": "Visa", "amount": 250.00, "merchant": "Best Buy", "location": "Miami, FL", "time": "02:29 PM EAT, Apr 27, 2025"},
     ]
 
-    # Create a placeholder for the ticker
-    ticker_placeholder = st.empty()
-    pause_button = st.button("Pause Ticker")
-
-    # Simulate real-time updates
+    # Initialize session state for ticker
     if "ticker_index" not in st.session_state:
         st.session_state.ticker_index = 0
     if "paused" not in st.session_state:
         st.session_state.paused = False
+    if "last_update" not in st.session_state:
+        st.session_state.last_update = time.time()
 
+    # Create a placeholder for the ticker
+    ticker_placeholder = st.empty()
+    pause_button = st.button("Pause Ticker")
+
+    # Update ticker based on time elapsed
     if pause_button:
         st.session_state.paused = not st.session_state.paused
 
-    if not st.session_state.paused:
-        # Update ticker every 2 seconds
-        with ticker_placeholder.container():
-            idx = st.session_state.ticker_index % len(transactions)
-            transaction = transactions[idx]
-            color = "orange" if transaction["card"] == "Visa" else "blue"
-            st.markdown(
-                f"<span style='color: {color}'>{transaction['card']}</span>: ${transaction['amount']:.2f} at {transaction['merchant']} ({transaction['location']}) - {transaction['time']}",
-                unsafe_allow_html=True
-            )
-            st.session_state.ticker_index += 1
-            time.sleep(2)
-            st.experimental_rerun()
+    current_time = time.time()
+    if not st.session_state.paused and (current_time - st.session_state.last_update) >= 2:
+        st.session_state.ticker_index = (st.session_state.ticker_index + 1) % len(transactions)
+        st.session_state.last_update = current_time
+
+    # Display the current transaction
+    idx = st.session_state.ticker_index % len(transactions)
+    transaction = transactions[idx]
+    color = "orange" if transaction["card"] == "Visa" else "blue"
+    with ticker_placeholder.container():
+        st.markdown(
+            f"<span style='color: {color}'>{transaction['card']}</span>: ${transaction['amount']:.2f} at {transaction['merchant']} ({transaction['location']}) - {transaction['time']}",
+            unsafe_allow_html=True
+        )
 
     # Display a simple statistic
     total_transactions = len(transactions)
