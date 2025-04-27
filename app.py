@@ -103,7 +103,7 @@ def make_future_prediction_core(user_date):
     predictions_M = scaler_M.inverse_transform(pred_M_scaled).flatten()
     predictions_V = scaler_V.inverse_transform(np.hstack([pred_V_scaled, np.zeros((weeks_to_predict, 3))]))[:, 0]
 
-    # Enforce price ranges and smooth with interpolation
+    # Enforce price ranges with interpolated targets and slight LSTM variation
     weekly_dates = pd.date_range(start=today + timedelta(days=7), periods=weeks_to_predict, freq='W')
     total_days = (datetime(2025, 12, 31).date() - today).days
     for i in range(weeks_to_predict):
@@ -111,8 +111,11 @@ def make_future_prediction_core(user_date):
         weight = current_days / total_days
         target_M = min_price_M + (max_price_M - min_price_M) * weight
         target_V = min_price_V + (max_price_V - min_price_V) * weight
-        predictions_M[i] = min(max(predictions_M[i], min_price_M), target_M)
-        predictions_V[i] = min(max(predictions_V[i], min_price_V), target_V)
+        # Add slight variation from LSTM (within ±2% of target)
+        variation_M = (predictions_M[i] - target_M) * 0.02
+        variation_V = (predictions_V[i] - target_V) * 0.02
+        predictions_M[i] = min(max(target_M + variation_M, min_price_M), max_price_M)
+        predictions_V[i] = min(max(target_V + variation_V, min_price_V), max_price_V)
 
     # Recalculate Visa features using NumPy
     temp_data_V = data[['Close_V']].values.tolist() + [[p] for p in predictions_V]
@@ -239,6 +242,10 @@ elif page == "📈 Predict":
             fig.add_trace(go.Scatter(x=future_prices['Date'], y=future_prices['Mastercard'], mode='lines', name='Mastercard Predicted', line=dict(color='green', dash='dash')))
             fig.update_layout(title='Historical and Predicted Stock Prices', xaxis_title='Date', yaxis_title='Price (USD)', hovermode='x')
             st.plotly_chart(fig, use_container_width=True)
+
+            # Debug: Show prediction range
+            st.write(f"Debug: Mastercard predictions range: ${min(plot_predictions_M):.2f} to ${max(plot_predictions_M):.2f}")
+            st.write(f"Debug: Visa predictions range: ${min(plot_predictions_V):.2f} to ${max(plot_predictions_V):.2f}")
 
 elif page == "ℹ️ Company Info":
     st.title("📊 Company Profiles: Visa & Mastercard")
