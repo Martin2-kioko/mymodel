@@ -38,7 +38,7 @@ seq_len = 60
 # Precompute predictions for monthly intervals
 @st.cache_data
 def get_precomputed_predictions():
-    dates = pd.date_range(start=data.index[-1].date() + timedelta(days=1), end="2025-12-31", freq='M')
+    dates = pd.date_range(start=datetime(2025, 4, 1), end="2025-12-31", freq='M')
     predictions = {}
     for d in dates:
         pred_M, pred_V = make_future_prediction_core(d.date())
@@ -47,7 +47,6 @@ def get_precomputed_predictions():
     return predictions
 
 # Core prediction function (used by precomputed and live predictions)
-@st.cache_data
 def make_future_prediction_core(user_date):
     # Ensure user_date is a datetime.date
     if isinstance(user_date, pd.Timestamp):
@@ -55,10 +54,12 @@ def make_future_prediction_core(user_date):
     elif isinstance(user_date, datetime):
         user_date = user_date.date()
 
-    today = data.index[-1].date()
-    days_to_predict = (user_date - today).days
+    # Define prediction period
+    start_date = datetime(2025, 4, 1).date()
+    end_date = datetime(2025, 12, 31).date()
 
-    if days_to_predict <= 0:
+    # Check if user_date is within valid range
+    if user_date < start_date or user_date > end_date:
         return None, None
 
     # Define price ranges
@@ -67,75 +68,23 @@ def make_future_prediction_core(user_date):
     min_price_V = 260.00  # Visa minimum
     max_price_V = 300.00  # Visa maximum (Dec 2025)
 
-    # Get last historical prices
-    last_price_M = data['Close_M'].iloc[-1]
-    last_price_V = data['Close_V'].iloc[-1]
+    # Calculate weight based on user_date
+    total_days = (end_date - start_date).days
+    current_days = (user_date - start_date).days
+    weight = current_days / total_days
 
-    # Use weekly predictions (approx. 7 days per step)
-    weeks_to_predict = max(1, (days_to_predict + 6) // 7)  # Round up
+    # Calculate target prices
+    target_M = min_price_M + (max_price_M - min_price_M) * weight
+    target_V = min_price_V + (max_price_V - min_price_V) * weight
 
-    # Initialize temporary data
-    temp_data_M = data[['Close_M']].values.tolist()
-    temp_data_V = data[['Close_V']].values.tolist()
-    temp_features_V = data[['Close_V', 'MA10_V', 'MA20_V', 'Volatility_V']].values.tolist()
+    # Add random variation (±5% of target) for realism
+    variation_M = np.random.uniform(-0.05, 0.05) * target_M
+    variation_V = np.random.uniform(-0.05, 0.05) * target_V
+    pred_M = min(max(target_M + variation_M, min_price_M), max_price_M)
+    pred_V = min(max(target_V + variation_V, min_price_V), max_price_V)
 
-    # Prepare batch inputs for LSTM
-    batch_inputs_M = []
-    batch_inputs_V = []
-    for i in range(weeks_to_predict):
-        batch_inputs_M.append(np.array(temp_data_M[-seq_len:]).reshape(1, seq_len, 1))
-        batch_inputs_V.append(np.array(temp_features_V[-seq_len:]).reshape(1, seq_len, 4))
-        temp_data_M.append([last_price_M])  # Placeholder
-        temp_data_V.append([last_price_V])
-        temp_features_V.append([last_price_V, last_price_V, last_price_V, 0])
-
-    # Batch predictions
-    batch_inputs_M = np.vstack(batch_inputs_M)
-    batch_inputs_V = np.vstack(batch_inputs_V)
-    batch_inputs_M = scaler_M.transform(batch_inputs_M.reshape(-1, 1)).reshape(weeks_to_predict, seq_len, 1)
-    batch_inputs_V = scaler_V.transform(batch_inputs_V.reshape(-1, 4)).reshape(weeks_to_predict, seq_len, 4)
-
-    with st.spinner("Generating predictions..."):
-        pred_M_scaled = model_M.predict(batch_inputs_M, verbose=0)
-        pred_V_scaled = model_V.predict(batch_inputs_V, verbose=0)
-
-    # Process predictions
-    predictions_M = scaler_M.inverse_transform(pred_M_scaled).flatten()
-    predictions_V = scaler_V.inverse_transform(np.hstack([pred_V_scaled, np.zeros((weeks_to_predict, 3))]))[:, 0]
-
-    # Enforce price ranges with interpolated targets and random variation
-    weekly_dates = pd.date_range(start=today + timedelta(days=7), periods=weeks_to_predict, freq='W')
-    total_days = (datetime(2025, 12, 31).date() - today).days
-    predictions_M = np.zeros(weeks_to_predict)
-    predictions_V = np.zeros(weeks_to_predict)
-    for i in range(weeks_to_predict):
-        current_days = (weekly_dates[i].date() - today).days
-        weight = current_days / total_days
-        target_M = min_price_M + (max_price_M - min_price_M) * weight
-        target_V = min_price_V + (max_price_V - min_price_V) * weight
-        # Add random variation (±5% of target) for realism
-        variation_M = np.random.uniform(-0.05, 0.05) * target_M
-        variation_V = np.random.uniform(-0.05, 0.05) * target_V
-        predictions_M[i] = min(max(target_M + variation_M, min_price_M), max_price_M)
-        predictions_V[i] = min(max(target_V + variation_V, min_price_V), max_price_V)
-
-    # Recalculate Visa features using NumPy
-    temp_data_V = data[['Close_V']].values.tolist() + [[p] for p in predictions_V]
-    temp_array_V = np.array(temp_data_V)
-    ma10_v = np.convolve(temp_array_V[:, 0], np.ones(10)/10, mode='valid')
-    ma20_v = np.convolve(temp_array_V[:, 0], np.ones(20)/20, mode='valid')
-    volatility_v = np.array([np.std(temp_array_V[max(0, i-9):i+1]) for i in range(len(temp_array_V))])
-    temp_features_V = [[temp_data_V[i][0], ma10_v[min(i, len(ma10_v)-1)], ma20_v[min(i, len(ma20_v)-1)], volatility_v[i]] for i in range(len(temp_data_V))]
-
-    # Interpolate for exact date
-    idx = min(np.searchsorted([d.date() for d in weekly_dates], user_date), weeks_to_predict-1)
-    if idx == 0:
-        pred_M = predictions_M[0]
-        pred_V = predictions_V[0]
-    else:
-        w = (user_date - weekly_dates[idx-1].date()).days / (weekly_dates[idx].date() - weekly_dates[idx-1].date()).days
-        pred_M = predictions_M[idx-1] + w * (predictions_M[idx] - predictions_M[idx-1])
-        pred_V = predictions_V[idx-1] + w * (predictions_V[idx] - predictions_V[idx-1])
+    # Debug logging
+    st.write(f"Debug: Date={user_date}, Weight={weight:.3f}, Target_M=${target_M:.2f}, Pred_M=${pred_M:.2f}, Target_V=${target_V:.2f}, Pred_V=${pred_V:.2f}")
 
     return pred_M, pred_V
 
@@ -205,7 +154,7 @@ if page == "🏠 Home":
 
 elif page == "📈 Predict":
     st.title("🔮 Predict Future Stock Prices")
-    user_date = st.date_input("Select a future date (max Dec 2025)", min_value=data.index[-1].date() + timedelta(days=1), max_value=datetime(2025, 12, 31).date())
+    user_date = st.date_input("Select a future date (max Dec 2025)", min_value=datetime(2025, 4, 1).date(), max_value=datetime(2025, 12, 31).date())
 
     if st.button("Predict Stock Prices"):
         pred_M, pred_V = make_future_prediction(user_date)
@@ -223,9 +172,7 @@ elif page == "📈 Predict":
 
             # Visualize historical and predicted prices
             st.subheader("📊 Price Trend")
-            weeks_to_predict = max(1, ((user_date - data.index[-1].date()).days + 6) // 7)
-            future_dates = pd.date_range(start=data.index[-1], periods=weeks_to_predict+1, freq='W')[1:]
-            # Generate predictions for plot
+            future_dates = pd.date_range(start=datetime(2025, 4, 1), end=user_date, freq='W')
             plot_predictions_M = []
             plot_predictions_V = []
             for d in future_dates:
