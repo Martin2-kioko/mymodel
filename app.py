@@ -41,13 +41,20 @@ def get_precomputed_predictions():
     dates = pd.date_range(start=data.index[-1].date() + timedelta(days=1), end="2025-12-31", freq='M')
     predictions = {}
     for d in dates:
-        pred_M, pred_V = make_future_prediction_core(d)
-        predictions[d] = (pred_M, pred_V)
+        # Convert Timestamp to date
+        pred_M, pred_V = make_future_prediction_core(d.date())
+        predictions[d.date()] = (pred_M, pred_V)
     return predictions
 
 # Core prediction function (used by precomputed and live predictions)
 @st.cache_data
 def make_future_prediction_core(user_date):
+    # Ensure user_date is a datetime.date
+    if isinstance(user_date, pd.Timestamp):
+        user_date = user_date.date()
+    elif isinstance(user_date, datetime):
+        user_date = user_date.date()
+
     today = data.index[-1].date()
     days_to_predict = (user_date - today).days
 
@@ -100,10 +107,10 @@ def make_future_prediction_core(user_date):
     weekly_dates = pd.date_range(start=today + timedelta(days=7), periods=weeks_to_predict, freq='W')
     total_days = (datetime(2025, 12, 31).date() - today).days
     for i in range(weeks_to_predict):
-        current_days = (weekly_dates[i] - today).days
+        current_days = (weekly_dates[i].date() - today).days
         weight = current_days / total_days
-        target_M = max(min_price_M, last_price_M) + (max_price_M - max(min_price_M, last_price_M)) * weight
-        target_V = max(min_price_V, last_price_V) + (max_price_V - max(min_price_V, last_price_V)) * weight
+        target_M = min_price_M + (max_price_M - min_price_M) * weight
+        target_V = min_price_V + (max_price_V - min_price_V) * weight
         predictions_M[i] = min(max(predictions_M[i], min_price_M), target_M)
         predictions_V[i] = min(max(predictions_V[i], min_price_V), target_V)
 
@@ -116,17 +123,17 @@ def make_future_prediction_core(user_date):
     temp_features_V = [[temp_data_V[i][0], ma10_v[min(i, len(ma10_v)-1)], ma20_v[min(i, len(ma20_v)-1)], volatility_v[i]] for i in range(len(temp_data_V))]
 
     # Interpolate for exact date
-    if user_date in weekly_dates:
-        idx = np.where(weekly_dates == user_date)[0][0]
+    if user_date in [d.date() for d in weekly_dates]:
+        idx = np.where([d.date() for d in weekly_dates] == user_date)[0][0]
         pred_M = predictions_M[idx]
         pred_V = predictions_V[idx]
     else:
-        idx = min(np.searchsorted(weekly_dates, user_date), weeks_to_predict-1)
+        idx = min(np.searchsorted([d.date() for d in weekly_dates], user_date), weeks_to_predict-1)
         if idx == 0:
             pred_M = predictions_M[0]
             pred_V = predictions_V[0]
         else:
-            w = (user_date - weekly_dates[idx-1]).days / (weekly_dates[idx] - weekly_dates[idx-1]).days
+            w = (user_date - weekly_dates[idx-1].date()).days / (weekly_dates[idx].date() - weekly_dates[idx-1].date()).days
             pred_M = predictions_M[idx-1] + w * (predictions_M[idx] - predictions_M[idx-1])
             pred_V = predictions_V[idx-1] + w * (predictions_V[idx] - predictions_V[idx-1])
 
@@ -135,8 +142,13 @@ def make_future_prediction_core(user_date):
 # Main prediction function with precomputed lookup
 @st.cache_data
 def make_future_prediction(user_date):
+    # Ensure user_date is a datetime.date
+    if isinstance(user_date, pd.Timestamp):
+        user_date = user_date.date()
+    elif isinstance(user_date, datetime):
+        user_date = user_date.date()
+
     precomputed = get_precomputed_predictions()
-    user_date = pd.Timestamp(user_date).date()
 
     # Check if user_date matches a precomputed date
     if user_date in precomputed:
@@ -217,7 +229,7 @@ elif page == "📈 Predict":
             plot_predictions_M = []
             plot_predictions_V = []
             for d in future_dates:
-                p_M, p_V = make_future_prediction(d)
+                p_M, p_V = make_future_prediction(d.date())
                 plot_predictions_M.append(p_M)
                 plot_predictions_V.append(p_V)
             future_prices = pd.DataFrame({
