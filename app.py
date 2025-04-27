@@ -41,9 +41,9 @@ def get_precomputed_predictions():
     dates = pd.date_range(start=data.index[-1].date() + timedelta(days=1), end="2025-12-31", freq='M')
     predictions = {}
     for d in dates:
-        # Convert Timestamp to date
         pred_M, pred_V = make_future_prediction_core(d.date())
-        predictions[d.date()] = (pred_M, pred_V)
+        if pred_M is not None and pred_V is not None:
+            predictions[d.date()] = (pred_M, pred_V)
     return predictions
 
 # Core prediction function (used by precomputed and live predictions)
@@ -123,19 +123,14 @@ def make_future_prediction_core(user_date):
     temp_features_V = [[temp_data_V[i][0], ma10_v[min(i, len(ma10_v)-1)], ma20_v[min(i, len(ma20_v)-1)], volatility_v[i]] for i in range(len(temp_data_V))]
 
     # Interpolate for exact date
-    if user_date in [d.date() for d in weekly_dates]:
-        idx = np.where([d.date() for d in weekly_dates] == user_date)[0][0]
-        pred_M = predictions_M[idx]
-        pred_V = predictions_V[idx]
+    idx = min(np.searchsorted([d.date() for d in weekly_dates], user_date), weeks_to_predict-1)
+    if idx == 0:
+        pred_M = predictions_M[0]
+        pred_V = predictions_V[0]
     else:
-        idx = min(np.searchsorted([d.date() for d in weekly_dates], user_date), weeks_to_predict-1)
-        if idx == 0:
-            pred_M = predictions_M[0]
-            pred_V = predictions_V[0]
-        else:
-            w = (user_date - weekly_dates[idx-1].date()).days / (weekly_dates[idx].date() - weekly_dates[idx-1].date()).days
-            pred_M = predictions_M[idx-1] + w * (predictions_M[idx] - predictions_M[idx-1])
-            pred_V = predictions_V[idx-1] + w * (predictions_V[idx] - predictions_V[idx-1])
+        w = (user_date - weekly_dates[idx-1].date()).days / (weekly_dates[idx].date() - weekly_dates[idx-1].date()).days
+        pred_M = predictions_M[idx-1] + w * (predictions_M[idx] - predictions_M[idx-1])
+        pred_V = predictions_V[idx-1] + w * (predictions_V[idx] - predictions_V[idx-1])
 
     return pred_M, pred_V
 
