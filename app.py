@@ -95,6 +95,42 @@ if page == "🏠 Home":
         plot_historical_prices()
     with col2:
         plot_volumes()
+
+    # New Market News and Insights Section
+    st.subheader("📰 Market News and Insights")
+    st.markdown("Stay updated with the latest news and insights on Visa, Mastercard, and the financial market.")
+
+    # Placeholder news items (in a real app, fetch from an API like NewsAPI or Yahoo Finance API)
+    news_items = [
+        {
+            "title": "Visa Expands Digital Payment Solutions in Europe",
+            "summary": "Visa announced a new partnership to enhance contactless payments across Europe, aiming to increase transaction speed and security.",
+            "label": "Visa",
+            "color": "orange",
+            "date": "April 25, 2025"
+        },
+        {
+            "title": "Mastercard Reports Strong Q1 Earnings",
+            "summary": "Mastercard's Q1 2025 earnings exceeded expectations, driven by growth in cross-border transactions and digital wallet adoption.",
+            "label": "Mastercard",
+            "color": "blue",
+            "date": "April 24, 2025"
+        },
+        {
+            "title": "Financial Sector Faces Uncertainty Amid Tariff Policies",
+            "summary": "New tariff policies announced by the U.S. government may impact the financial sector, including payment companies like Visa and Mastercard.",
+            "label": "Market",
+            "color": "gray",
+            "date": "April 23, 2025"
+        }
+    ]
+
+    # Display news items in a card-like format
+    for item in news_items:
+        with st.expander(f"{item['title']} ({item['date']})"):
+            st.markdown(f"<span style='color: {item['color']}'>{item['label']}</span>: {item['summary']}", unsafe_allow_html=True)
+            st.markdown("[Read More](#)")  # Placeholder link
+
     st.success("Navigate to prediction or company info via sidebar.")
 
 elif page == "📈 Predict":
