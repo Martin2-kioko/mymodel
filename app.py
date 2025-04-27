@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 import plotly.graph_objects as go
 import joblib
 from tensorflow.keras.models import load_model
-import time
 
 # Page config
 st.set_page_config(page_title="Visa & Mastercard Stocks", layout="wide")
@@ -96,56 +95,6 @@ if page == "🏠 Home":
         plot_historical_prices()
     with col2:
         plot_volumes()
-
-    # Real-Time Transaction Alerts Simulator Section
-    st.subheader("🔔 Real-Time Transaction Alerts Simulator")
-    st.markdown("Monitor simulated real-time transactions for Visa and Mastercard cards.")
-
-    # Simulated transactions data
-    transactions = [
-        {"card": "Visa", "amount": 45.30, "merchant": "Starbucks", "location": "New York, NY", "time": "02:25 PM EAT, Apr 27, 2025"},
-        {"card": "Mastercard", "amount": 120.50, "merchant": "Amazon", "location": "Online", "time": "02:26 PM EAT, Apr 27, 2025"},
-        {"card": "Visa", "amount": 89.99, "merchant": "Target", "location": "Los Angeles, CA", "time": "02:27 PM EAT, Apr 27, 2025"},
-        {"card": "Mastercard", "amount": 15.75, "merchant": "Uber", "location": "Chicago, IL", "time": "02:28 PM EAT, Apr 27, 2025"},
-        {"card": "Visa", "amount": 250.00, "merchant": "Best Buy", "location": "Miami, FL", "time": "02:29 PM EAT, Apr 27, 2025"},
-    ]
-
-    # Initialize session state for ticker
-    if "ticker_index" not in st.session_state:
-        st.session_state.ticker_index = 0
-    if "paused" not in st.session_state:
-        st.session_state.paused = False
-    if "last_update" not in st.session_state:
-        st.session_state.last_update = time.time()
-
-    # Create a placeholder for the ticker
-    ticker_placeholder = st.empty()
-    pause_button = st.button("Pause Ticker")
-
-    # Update ticker based on time elapsed
-    if pause_button:
-        st.session_state.paused = not st.session_state.paused
-
-    current_time = time.time()
-    if not st.session_state.paused and (current_time - st.session_state.last_update) >= 2:
-        st.session_state.ticker_index = (st.session_state.ticker_index + 1) % len(transactions)
-        st.session_state.last_update = current_time
-
-    # Display the current transaction
-    idx = st.session_state.ticker_index % len(transactions)
-    transaction = transactions[idx]
-    color = "orange" if transaction["card"] == "Visa" else "blue"
-    with ticker_placeholder.container():
-        st.markdown(
-            f"<span style='color: {color}'>{transaction['card']}</span>: ${transaction['amount']:.2f} at {transaction['merchant']} ({transaction['location']}) - {transaction['time']}",
-            unsafe_allow_html=True
-        )
-
-    # Display a simple statistic
-    total_transactions = len(transactions)
-    total_amount = sum(txn["amount"] for txn in transactions)
-    st.markdown(f"**Stats**: {total_transactions} transactions simulated, Total Amount: ${total_amount:.2f}")
-
     st.success("Navigate to prediction or company info via sidebar.")
 
 elif page == "📈 Predict":
