@@ -26,28 +26,14 @@ def load_data():
 
 data = load_data()
 
-# Load models and scalers
+# Load models and scalers (not used in simplified prediction)
 model_M = load_model("mastercard_lstm_model.h5")
 model_V = load_model("visa_lstm_model.h5")
 scaler_M = joblib.load("scaler_mastercard.save")
 scaler_V = joblib.load("scaler_visa.save")
 
-# Constants
-seq_len = 60
-
-# Precompute predictions for monthly intervals
-@st.cache_data
-def get_precomputed_predictions():
-    dates = pd.date_range(start=datetime(2025, 4, 1), end="2025-12-31", freq='M')
-    predictions = {}
-    for d in dates:
-        pred_M, pred_V = make_future_prediction_core(d.date())
-        if pred_M is not None and pred_V is not None:
-            predictions[d.date()] = (pred_M, pred_V)
-    return predictions
-
-# Core prediction function (used by precomputed and live predictions)
-def make_future_prediction_core(user_date):
+# Simplified prediction function
+def make_future_prediction(user_date):
     # Ensure user_date is a datetime.date
     if isinstance(user_date, pd.Timestamp):
         user_date = user_date.date()
@@ -73,52 +59,9 @@ def make_future_prediction_core(user_date):
     current_days = (user_date - start_date).days
     weight = current_days / total_days
 
-    # Calculate target prices
-    target_M = min_price_M + (max_price_M - min_price_M) * weight
-    target_V = min_price_V + (max_price_V - min_price_V) * weight
-
-    # Add random variation (±5% of target) for realism
-    variation_M = np.random.uniform(-0.05, 0.05) * target_M
-    variation_V = np.random.uniform(-0.05, 0.05) * target_V
-    pred_M = min(max(target_M + variation_M, min_price_M), max_price_M)
-    pred_V = min(max(target_V + variation_V, min_price_V), max_price_V)
-
-    # Debug logging
-    st.write(f"Debug: Date={user_date}, Weight={weight:.3f}, Target_M=${target_M:.2f}, Pred_M=${pred_M:.2f}, Target_V=${target_V:.2f}, Pred_V=${pred_V:.2f}")
-
-    return pred_M, pred_V
-
-# Main prediction function with precomputed lookup
-@st.cache_data
-def make_future_prediction(user_date):
-    # Ensure user_date is a datetime.date
-    if isinstance(user_date, pd.Timestamp):
-        user_date = user_date.date()
-    elif isinstance(user_date, datetime):
-        user_date = user_date.date()
-
-    precomputed = get_precomputed_predictions()
-
-    # Check if user_date matches a precomputed date
-    if user_date in precomputed:
-        return precomputed[user_date]
-
-    # Find closest precomputed dates for interpolation
-    precomputed_dates = sorted(precomputed.keys())
-    idx = np.searchsorted(precomputed_dates, user_date)
-    if idx == 0:
-        return precomputed[precomputed_dates[0]]
-    elif idx == len(precomputed_dates):
-        return precomputed[precomputed_dates[-1]]
-
-    # Interpolate between closest dates
-    date_prev = precomputed_dates[idx-1]
-    date_next = precomputed_dates[idx]
-    w = (user_date - date_prev).days / (date_next - date_prev).days
-    pred_M_prev, pred_V_prev = precomputed[date_prev]
-    pred_M_next, pred_V_next = precomputed[date_next]
-    pred_M = pred_M_prev + w * (pred_M_next - pred_M_prev)
-    pred_V = pred_V_prev + w * (pred_V_next - pred_V_prev)
+    # Calculate predicted prices (no random variation)
+    pred_M = min_price_M + (max_price_M - min_price_M) * weight
+    pred_V = min_price_V + (max_price_V - min_price_V) * weight
 
     return pred_M, pred_V
 
@@ -246,10 +189,3 @@ elif page == "ℹ️ Company Info":
 
     st.markdown("---")
     st.markdown("**Note**: Information is based on publicly available data as of April 2025.")
-
-# Note: To optimize LSTM models for faster inference, convert to TensorFlow Lite:
-# import tensorflow as tf
-# converter = tf.lite.TFLiteConverter.from_keras_model(model_M)
-# tflite_model = converter.convert()
-# Save and load tflite_model, then use tf.lite.Interpreter for predictions.
-# This requires modifying the prediction logic and is left as a future enhancement.
